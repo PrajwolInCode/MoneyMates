@@ -124,3 +124,27 @@ export type MonthlyCoachPayload = {
   spendingByPerson: Array<{ name: string; spent: number }>;
   fixedPayments: Array<{ name: string; amount: number; dueDay: number; category: string }>;
 };
+
+export type Notification = {
+  id: string;
+  household_id: string;
+  user_id: string;
+  actor_user_id?: string | null;
+  type: string;
+  title: string;
+  body: string;
+  metadata: Record<string, unknown>;
+  read_at?: string | null;
+  created_at: string;
+};
+
+export type ExpenseComment = {
+  id: string;
+  household_id: string;
+  expense_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  updated_at?: string;
+  profile?: Profile | null;
+};

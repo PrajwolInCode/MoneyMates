@@ -9,8 +9,10 @@ import type {
   Category,
   CoachResponse,
   Expense,
+  ExpenseComment,
   Household,
   HouseholdMember,
+  Notification,
   RecurringPayment,
 } from "../types";
 import { useAuth } from "./AuthContext";
@@ -36,6 +38,9 @@ type HouseholdContextValue = {
   budgetLimits: BudgetLimit[];
   expenses: Expense[];
   recurringPayments: RecurringPayment[];
+  notifications: Notification[];
+  expenseComments: ExpenseComment[];
+  unreadNotificationCount: number;
   aiInsight: AiInsight | null;
   monthStart: string;
   loading: boolean;
@@ -50,6 +55,8 @@ type HouseholdContextValue = {
   saveRecurringPayment: (input: { name: string; amount: number; dueDay: number; categoryId: string }) => Promise<void>;
   deleteRecurringPayment: (id: string) => Promise<void>;
   saveAiInsight: (response: CoachResponse) => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
+  addExpenseComment: (expenseId: string, body: string) => Promise<void>;
 };
 
 const HouseholdContext = createContext<HouseholdContextValue | undefined>(undefined);
@@ -103,6 +110,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [recurringPayments, setRecurringPayments] = useState<RecurringPayment[]>([]);
   const [aiInsight, setAiInsight] = useState<AiInsight | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [expenseComments, setExpenseComments] = useState<ExpenseComment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const monthStart = getMonthStart();
@@ -118,12 +127,43 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setExpenses([]);
     setRecurringPayments([]);
     setAiInsight(null);
+    setNotifications([]);
+    setExpenseComments([]);
   };
 
+
+  const ensureRecurringDueNotifications = async (target: Household, payments: RecurringPayment[]) => {
+    if (!user) return;
+    const today = new Date();
+    const todayIso = today.toISOString().slice(0, 10);
+    for (const payment of payments) {
+      const dueInDays = payment.due_day - today.getDate();
+      if (dueInDays < 0 || dueInDays > 3) continue;
+      const dedupeKey = `recurring_due_${payment.id}_${todayIso}`;
+      const { data: existing } = await supabase
+        .from("notifications")
+        .select("id")
+        .eq("household_id", target.id)
+        .eq("user_id", user.id)
+        .eq("type", "recurring_due")
+        .contains("metadata", { dedupe_key: dedupeKey })
+        .limit(1);
+      if (existing && existing.length) continue;
+      await supabase.from("notifications").insert({
+        household_id: target.id,
+        user_id: user.id,
+        actor_user_id: payment.created_by,
+        type: "recurring_due",
+        title: "Recurring payment is due soon",
+        body: `${payment.name} is due in ${dueInDays} day${dueInDays === 1 ? "" : "s"}.`,
+        metadata: { payment_id: payment.id, dedupe_key: dedupeKey },
+      });
+    }
+  };
   const loadHouseholdData = async (target: Household) => {
     const bounds = getMonthBounds(monthStart);
 
-    const [membersResult, categoriesResult, budgetMonthResult, expensesResult, recurringResult] = await Promise.all([
+    const [membersResult, categoriesResult, budgetMonthResult, expensesResult, recurringResult, notificationsResult, commentsResult] = await Promise.all([
       supabase
         .from("household_members")
         .select("household_id,user_id,role,joined_at,profiles(id,display_name,email,created_at,updated_at)")
@@ -149,6 +189,12 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .select("*,categories(*)")
         .eq("household_id", target.id)
         .order("due_day", { ascending: true }),
+      supabase.from("notifications").select("*").eq("household_id", target.id).order("created_at", { ascending: false }).limit(40),
+      supabase
+        .from("expense_comments")
+        .select("*,profiles(id,display_name,email,created_at,updated_at)")
+        .eq("household_id", target.id)
+        .order("created_at", { ascending: true }),
     ]);
 
     if (membersResult.error) throw membersResult.error;
@@ -156,13 +202,19 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     if (budgetMonthResult.error) throw budgetMonthResult.error;
     if (expensesResult.error) throw expensesResult.error;
     if (recurringResult.error) throw recurringResult.error;
+    if (notificationsResult.error) throw notificationsResult.error;
+    if (commentsResult.error) throw commentsResult.error;
 
     const nextBudgetMonth = budgetMonthResult.data ? ({ ...budgetMonthResult.data } as BudgetMonth) : null;
     setMembers((membersResult.data ?? []).map(normalizeMember));
     setCategories((categoriesResult.data ?? []) as Category[]);
     setBudgetMonth(nextBudgetMonth);
     setExpenses((expensesResult.data ?? []).map(normalizeExpense));
-    setRecurringPayments((recurringResult.data ?? []).map(normalizeRecurring));
+    const normalizedRecurring = (recurringResult.data ?? []).map(normalizeRecurring);
+    setRecurringPayments(normalizedRecurring);
+    setNotifications((notificationsResult.data ?? []) as Notification[]);
+    setExpenseComments((commentsResult.data ?? []).map((row: any) => ({ ...row, profile: row.profiles ?? null })));
+    await ensureRecurringDueNotifications(target, normalizedRecurring);
 
     if (!nextBudgetMonth) {
       setBudgetLimits([]);
@@ -227,6 +279,19 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     void refresh();
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!household || !user) return;
+    const channel = supabase
+      .channel(`household-stream-${household.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "expense_comments", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "expenses", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [household?.id, user?.id]);
+
   const getOrCreateBudgetMonth = async () => {
     if (!household) throw new Error("Create or join a household first.");
     if (budgetMonth) return budgetMonth;
@@ -257,7 +322,10 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       budgetLimits,
       expenses,
       recurringPayments,
+      notifications,
+      expenseComments,
       aiInsight,
+      unreadNotificationCount: notifications.filter((item) => !item.read_at).length,
       monthStart,
       loading,
       error,
@@ -411,6 +479,15 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         if (insightError) throw insightError;
         await refresh();
       },
+      markNotificationRead: async (id) => {
+        const { error: updateError } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id);
+        if (updateError) throw updateError;
+      },
+      addExpenseComment: async (expenseId, body) => {
+        if (!household || !user) throw new Error("Create a household first.");
+        const { error: commentError } = await supabase.from("expense_comments").insert({ household_id: household.id, expense_id: expenseId, user_id: user.id, body });
+        if (commentError) throw commentError;
+      },
     }),
     [
       household,
@@ -420,6 +497,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       budgetLimits,
       expenses,
       recurringPayments,
+      notifications,
+      expenseComments,
       aiInsight,
       monthStart,
       loading,

@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { CircleDollarSign } from "lucide-react";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { BottomNav, DesktopNav } from "./BottomNav";
+import { NotificationCenter } from "./NotificationCenter";
 
 export function AppLayout() {
   const { household } = useHousehold();
@@ -19,7 +20,7 @@ export function AppLayout() {
               <p className="text-xs font-medium text-ink/55">{household?.name ?? "Household budget"}</p>
             </div>
           </div>
-          <DesktopNav />
+          <div className="flex items-center gap-2"><DesktopNav /><NotificationCenter /></div>
         </div>
       </header>
 
