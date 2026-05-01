@@ -10,6 +10,21 @@ import { WarningBanner } from "../components/WarningBanner";
 import { useAuth } from "../contexts/AuthContext";
 import { hasSupabaseEnv } from "../lib/supabase";
 
+function authErrorMessage(caught: unknown) {
+  const message = caught instanceof Error ? caught.message : "";
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("email rate") || normalized.includes("rate limit") || normalized.includes("email create")) {
+    return "Supabase has reached its built-in auth email limit. For private sharing, turn off email confirmation in Supabase Auth > Providers > Email, or configure Custom SMTP for production signups.";
+  }
+
+  if (normalized.includes("email address not authorized")) {
+    return "Supabase's default email sender only sends to project team emails. Configure Custom SMTP, or add this person to the Supabase organization while testing.";
+  }
+
+  return message || "Authentication failed.";
+}
+
 export function AuthPage() {
   const { user, loading, signIn, signUp } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -50,7 +65,7 @@ export function AuthPage() {
         setNotice("Account created. If email confirmation is enabled, check your inbox before signing in.");
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Authentication failed.");
+      setError(authErrorMessage(caught));
     } finally {
       setSubmitting(false);
     }

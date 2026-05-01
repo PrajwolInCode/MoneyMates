@@ -73,7 +73,7 @@ npm run build
 1. Create a Supabase project.
 2. Open the SQL editor.
 3. Run `supabase/migrations/202605010001_initial_schema.sql`.
-4. Confirm email settings in Supabase Auth. For fastest household testing, disable email confirmation during local development.
+4. Confirm email settings in Supabase Auth. For fastest household testing or private sharing, disable email confirmation. For real public sharing, configure Custom SMTP.
 5. Add the frontend environment variables from the Supabase project settings.
 
 The migration creates:
@@ -91,6 +91,15 @@ The migration creates:
 RLS is enabled on every public table. Users can only read household data where they are members. Members can add their own expenses. Users can update and delete only their own expenses. Household owners manage categories, monthly limits, and recurring payments. Spouses join through the safe `join_household_by_code` RPC.
 
 Do not put a Supabase service role key in the frontend.
+
+### Auth Email Limits
+
+Supabase's built-in auth email sender is only for testing and has a very low project-wide email limit. If signup says email rate limit exceeded, choose one of these:
+
+- Private sharing: go to Supabase **Authentication > Providers > Email** and turn **Confirm email** off.
+- Production sharing: go to Supabase **Authentication > SMTP Settings** and configure a provider such as Resend, SendGrid, Mailgun, Postmark, or your domain email SMTP.
+
+After enabling Custom SMTP, check **Authentication > Rate Limits** if you need to allow more signup emails.
 
 ## OpenAI and Netlify Function
 
