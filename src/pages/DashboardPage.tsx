@@ -247,12 +247,18 @@ export function DashboardPage() {
         <Card>
           <h2 className="text-xl font-bold tracking-normal text-ink">Real-time activity feed</h2>
           <div className="mt-3 space-y-2">
-            {notifications.slice(0, 8).map((item) => (
-              <div key={item.id} className="rounded-xl border border-sage/70 bg-mist px-3 py-2">
-                <p className="text-sm font-semibold text-ink">{item.title}</p>
-                <p className="text-xs text-ink/70">{item.body}</p>
-              </div>
-            ))}
+            {notifications.length ? (
+              notifications.slice(0, 8).map((item) => (
+                <div key={item.id} className="rounded-xl border border-sage/70 bg-mist px-3 py-2">
+                  <p className="text-sm font-semibold text-ink">{item.title}</p>
+                  <p className="text-xs text-ink/70">{item.body}</p>
+                </div>
+              ))
+            ) : (
+              <p className="rounded-xl border border-dashed border-sage/80 bg-white px-3 py-4 text-sm text-ink/60">
+                No household activity yet. Add an expense and it will appear here in real time.
+              </p>
+            )}
           </div>
         </Card>
       </div>

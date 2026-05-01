@@ -131,6 +131,35 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setExpenseComments([]);
   };
 
+
+  const ensureRecurringDueNotifications = async (target: Household, payments: RecurringPayment[]) => {
+    if (!user) return;
+    const today = new Date();
+    const todayIso = today.toISOString().slice(0, 10);
+    for (const payment of payments) {
+      const dueInDays = payment.due_day - today.getDate();
+      if (dueInDays < 0 || dueInDays > 3) continue;
+      const dedupeKey = `recurring_due_${payment.id}_${todayIso}`;
+      const { data: existing } = await supabase
+        .from("notifications")
+        .select("id")
+        .eq("household_id", target.id)
+        .eq("user_id", user.id)
+        .eq("type", "recurring_due")
+        .contains("metadata", { dedupe_key: dedupeKey })
+        .limit(1);
+      if (existing && existing.length) continue;
+      await supabase.from("notifications").insert({
+        household_id: target.id,
+        user_id: user.id,
+        actor_user_id: payment.created_by,
+        type: "recurring_due",
+        title: "Recurring payment is due soon",
+        body: `${payment.name} is due in ${dueInDays} day${dueInDays === 1 ? "" : "s"}.`,
+        metadata: { payment_id: payment.id, dedupe_key: dedupeKey },
+      });
+    }
+  };
   const loadHouseholdData = async (target: Household) => {
     const bounds = getMonthBounds(monthStart);
 
@@ -181,9 +210,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setCategories((categoriesResult.data ?? []) as Category[]);
     setBudgetMonth(nextBudgetMonth);
     setExpenses((expensesResult.data ?? []).map(normalizeExpense));
-    setRecurringPayments((recurringResult.data ?? []).map(normalizeRecurring));
+    const normalizedRecurring = (recurringResult.data ?? []).map(normalizeRecurring);
+    setRecurringPayments(normalizedRecurring);
     setNotifications((notificationsResult.data ?? []) as Notification[]);
     setExpenseComments((commentsResult.data ?? []).map((row: any) => ({ ...row, profile: row.profiles ?? null })));
+    await ensureRecurringDueNotifications(target, normalizedRecurring);
 
     if (!nextBudgetMonth) {
       setBudgetLimits([]);
