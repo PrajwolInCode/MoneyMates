@@ -50,6 +50,7 @@ export function DashboardPage() {
     expenses,
     recurringPayments,
     aiInsight,
+    notifications,
     monthStart,
     saveAiInsight,
   } = useHousehold();
@@ -241,6 +242,20 @@ export function DashboardPage() {
         </Card>
       </div>
 
+
+      <div className="mt-5">
+        <Card>
+          <h2 className="text-xl font-bold tracking-normal text-ink">Real-time activity feed</h2>
+          <div className="mt-3 space-y-2">
+            {notifications.slice(0, 8).map((item) => (
+              <div key={item.id} className="rounded-xl border border-sage/70 bg-mist px-3 py-2">
+                <p className="text-sm font-semibold text-ink">{item.title}</p>
+                <p className="text-xs text-ink/70">{item.body}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
       <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card>
           <h2 className="text-xl font-bold tracking-normal text-ink">Recent transactions</h2>
