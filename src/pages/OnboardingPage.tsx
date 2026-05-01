@@ -8,6 +8,21 @@ import { inputClass } from "../components/inputs";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
 
+function normalizeJoinCode(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+function joinErrorMessage(caught: unknown) {
+  const message = caught instanceof Error ? caught.message : "";
+  if (message.toLowerCase().includes("invalid join code")) {
+    return "That join code was not found. Check the code in Settings on the owner account and try again.";
+  }
+  if (message.toLowerCase().includes("not authenticated")) {
+    return "Please sign in again before joining the household.";
+  }
+  return message || "Could not join household.";
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { household, createHousehold, joinHousehold } = useHousehold();
@@ -39,16 +54,17 @@ export function OnboardingPage() {
   const handleJoin = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (joinCode.trim().length < 6) {
+    const normalizedCode = normalizeJoinCode(joinCode);
+    if (normalizedCode.length < 6) {
       setError("Enter the join code from your spouse.");
       return;
     }
     setLoadingAction("join");
     try {
-      await joinHousehold(joinCode.trim().toUpperCase());
+      await joinHousehold(normalizedCode);
       navigate("/", { replace: true });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not join household.");
+      setError(joinErrorMessage(caught));
     } finally {
       setLoadingAction(null);
     }
@@ -93,8 +109,10 @@ export function OnboardingPage() {
                 <input
                   className={`${inputClass} uppercase`}
                   value={joinCode}
-                  onChange={(event) => setJoinCode(event.target.value)}
+                  onChange={(event) => setJoinCode(normalizeJoinCode(event.target.value))}
                   placeholder="ABCD1234"
+                  autoComplete="off"
+                  maxLength={12}
                 />
               </FormField>
               <Button type="submit" variant="secondary" className="w-full" loading={loadingAction === "join"}>
