@@ -1,2 +1,158 @@
 # MoneyMates
-Budgeting APP
+
+MoneyMates is a mobile-first household budgeting PWA for a husband and wife budget starting from 1 May 2026. It uses manual expense entry, shared Supabase household data, category limits, recurring payments, exports, and a Netlify Function for calm OpenAI budget coaching.
+
+## Stack
+
+- React, Vite, TypeScript
+- Tailwind CSS
+- Supabase Auth, Postgres, Row Level Security
+- Recharts
+- Netlify and Netlify Functions
+- OpenAI Responses API
+- PWA manifest and service worker
+- CSV, Excel, and PDF exports
+
+## Folder Structure
+
+```text
+MoneyMates/
+  netlify/
+    functions/
+      budget-coach.ts
+  public/
+    icons/
+    manifest.webmanifest
+    service-worker.js
+  src/
+    components/
+    contexts/
+    lib/
+    pages/
+    App.tsx
+    main.tsx
+    index.css
+  supabase/
+    migrations/
+      202605010001_initial_schema.sql
+  netlify.toml
+  package.json
+  tailwind.config.js
+  vite.config.ts
+```
+
+## Local Setup
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create `.env.local`:
+
+```bash
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+Run the app:
+
+```bash
+npm run dev
+```
+
+Build for production:
+
+```bash
+npm run build
+```
+
+## Supabase Setup
+
+1. Create a Supabase project.
+2. Open the SQL editor.
+3. Run `supabase/migrations/202605010001_initial_schema.sql`.
+4. Confirm email settings in Supabase Auth. For fastest household testing, disable email confirmation during local development.
+5. Add the frontend environment variables from the Supabase project settings.
+
+The migration creates:
+
+- `profiles`
+- `households`
+- `household_members`
+- `categories`
+- `budget_months`
+- `budget_limits`
+- `expenses`
+- `recurring_payments`
+- `ai_insights`
+
+RLS is enabled on every public table. Users can only read household data where they are members. Members can add their own expenses. Users can update and delete only their own expenses. Household owners manage categories, monthly limits, and recurring payments. Spouses join through the safe `join_household_by_code` RPC.
+
+Do not put a Supabase service role key in the frontend.
+
+## OpenAI and Netlify Function
+
+The frontend calls:
+
+```text
+/.netlify/functions/budget-coach
+```
+
+The Netlify Function reads:
+
+```bash
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+Only summarized monthly budget data is sent to the function. The OpenAI key stays server-side in Netlify.
+
+Expected AI JSON:
+
+```json
+{
+  "summary": "...",
+  "suggestions": ["...", "...", "..."],
+  "warning": "...",
+  "todayAction": "..."
+}
+```
+
+## Netlify Deployment
+
+`netlify.toml` is already configured:
+
+```toml
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+```
+
+In Netlify:
+
+1. Connect the GitHub repo.
+2. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+3. Add `OPENAI_API_KEY` and `OPENAI_MODEL`.
+4. Deploy.
+
+## PWA Install
+
+The app includes:
+
+- `public/manifest.webmanifest`
+- `public/service-worker.js`
+- 192px, 512px, and Apple touch icons
+- `display: standalone`
+- Theme color `#0f3d3e`
+
+After deploying over HTTPS, Android browsers should show install support. On iPhone, use Safari Share, then Add to Home Screen.
+
+## Notes
+
+- Month tracking starts at `2026-05-01`.
+- Bank sync is intentionally not included.
+- The Supabase client uses `persistSession: true` and `autoRefreshToken: true`.
+- `xlsx` is included for Excel export as requested. `npm audit` currently reports known no-fix advisories in that package, so avoid importing untrusted spreadsheet files in this app.

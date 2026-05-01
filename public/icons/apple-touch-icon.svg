@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="MoneyMates">
+  <rect width="180" height="180" rx="38" fill="#0f3d3e"/>
+  <circle cx="64" cy="82" r="27" fill="#dcebe2"/>
+  <circle cx="116" cy="82" r="27" fill="#f7c66a"/>
+  <path d="M44 121c10-16 25-24 46-24s36 8 46 24" fill="none" stroke="#f4f8f5" stroke-width="12" stroke-linecap="round"/>
+  <path d="M90 50v82" stroke="#f4f8f5" stroke-width="9" stroke-linecap="round" opacity=".88"/>
+</svg>

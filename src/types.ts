@@ -1,0 +1,126 @@
+export type MemberRole = "owner" | "member";
+
+export type Profile = {
+  id: string;
+  display_name: string;
+  email: string;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type Household = {
+  id: string;
+  name: string;
+  owner_id: string;
+  join_code: string;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type HouseholdMember = {
+  household_id: string;
+  user_id: string;
+  role: MemberRole;
+  joined_at: string;
+  profile?: Profile | null;
+};
+
+export type Category = {
+  id: string;
+  household_id: string;
+  name: string;
+  color: string;
+  icon: string;
+  is_default: boolean;
+  created_at: string;
+};
+
+export type BudgetMonth = {
+  id: string;
+  household_id: string;
+  month_start: string;
+  total_income: number;
+  planned_budget: number;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type BudgetLimit = {
+  id: string;
+  household_id: string;
+  budget_month_id: string;
+  category_id: string;
+  amount: number;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type Expense = {
+  id: string;
+  household_id: string;
+  category_id: string;
+  user_id: string;
+  amount: number;
+  spent_on: string;
+  merchant?: string | null;
+  note?: string | null;
+  created_at: string;
+  updated_at?: string;
+  category?: Category | null;
+  profile?: Profile | null;
+};
+
+export type RecurringPayment = {
+  id: string;
+  household_id: string;
+  category_id: string;
+  name: string;
+  amount: number;
+  due_day: number;
+  cadence: "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly";
+  next_due_on?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at?: string;
+  category?: Category | null;
+};
+
+export type CoachResponse = {
+  summary: string;
+  suggestions: string[];
+  warning: string;
+  todayAction: string;
+};
+
+export type AiInsight = {
+  id: string;
+  household_id: string;
+  budget_month_id: string;
+  summary: string;
+  suggestions: string[];
+  warning: string;
+  today_action: string;
+  created_by: string;
+  created_at: string;
+};
+
+export type CategorySeed = {
+  name: string;
+  color: string;
+  icon: string;
+};
+
+export type MonthlyCoachPayload = {
+  householdName: string;
+  month: string;
+  totalIncome: number;
+  plannedBudget: number;
+  totalSpent: number;
+  remainingBudget: number;
+  safeDailySpend: number;
+  daysLeft: number;
+  spendingByCategory: Array<{ category: string; spent: number; limit: number; remaining: number }>;
+  spendingByPerson: Array<{ name: string; spent: number }>;
+  fixedPayments: Array<{ name: string; amount: number; dueDay: number; category: string }>;
+};
