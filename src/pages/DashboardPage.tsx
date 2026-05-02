@@ -22,6 +22,7 @@ import { CategoryProgressList } from "../components/CategoryProgressList";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { RecurringList } from "../components/RecurringList";
+import { RefreshDataButton } from "../components/RefreshDataButton";
 import { StatCard } from "../components/StatCard";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
@@ -106,13 +107,16 @@ export function DashboardPage() {
         title="Household dashboard"
         description="A simple daily view of what has been spent, what remains, and where a small adjustment would help."
         action={
-          <Link
-            to="/add"
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink sm:w-auto"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Add expense
-          </Link>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <RefreshDataButton className="w-full sm:w-auto" />
+            <Link
+              to="/add"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink sm:w-auto"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add expense
+            </Link>
+          </div>
         }
       />
 

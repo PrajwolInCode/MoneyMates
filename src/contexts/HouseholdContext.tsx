@@ -1,3 +1,4 @@
+import type { User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { DEFAULT_CATEGORIES } from "../lib/constants";
 import { getMonthBounds, getMonthStart } from "../lib/date";
@@ -48,6 +49,9 @@ type BudgetItemInput = {
 };
 
 type DataLoadIssue = "none" | "missing_env" | "no_household" | "rls_denied" | "schema_mismatch" | "load_failed";
+type RefreshOptions = {
+  throwOnError?: boolean;
+};
 
 type HouseholdContextValue = {
   household: Household | null;
@@ -68,7 +72,7 @@ type HouseholdContextValue = {
   loadIssue: DataLoadIssue;
   dataWarnings: string[];
   isOwner: boolean;
-  refresh: () => Promise<void>;
+  refresh: (options?: RefreshOptions) => Promise<void>;
   createHousehold: (name: string) => Promise<void>;
   joinHousehold: (joinCode: string) => Promise<void>;
   addExpense: (input: AddExpenseInput) => Promise<void>;
@@ -228,7 +232,7 @@ async function loadOptionalExpenseComments(householdId: string) {
 }
 
 export function HouseholdProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const [household, setHousehold] = useState<Household | null>(null);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -265,8 +269,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   };
 
 
-  const ensureRecurringDueNotifications = async (target: Household, payments: RecurringPayment[]) => {
-    if (!user) return;
+  const ensureRecurringDueNotifications = async (target: Household, payments: RecurringPayment[], activeUser: User) => {
     const today = new Date();
     const todayIso = today.toISOString().slice(0, 10);
     for (const payment of payments) {
@@ -277,14 +280,14 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .from("notifications")
         .select("id")
         .eq("household_id", target.id)
-        .eq("user_id", user.id)
+        .eq("user_id", activeUser.id)
         .eq("type", "recurring_due")
         .contains("metadata", { dedupe_key: dedupeKey })
         .limit(1);
       if (existing && existing.length) continue;
       await supabase.from("notifications").insert({
         household_id: target.id,
-        user_id: user.id,
+        user_id: activeUser.id,
         actor_user_id: payment.created_by,
         type: "recurring_due",
         title: "Recurring payment is due soon",
@@ -293,8 +296,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       });
     }
   };
-  const loadHouseholdData = async (target: Household) => {
-    if (!user) return;
+  const loadHouseholdData = async (target: Household, activeUser: User) => {
     const bounds = getMonthBounds(monthStart);
 
     const [
@@ -339,7 +341,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
 
     const [budgetItemsResult, notificationsResult, commentsResult] = await Promise.all([
       loadBudgetItemsForHousehold(target.id),
-      loadOptionalNotifications(target.id, user.id),
+      loadOptionalNotifications(target.id, activeUser.id),
       loadOptionalExpenseComments(target.id),
     ]);
     const warnings = [
@@ -360,7 +362,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setExpenseComments(commentsResult.data);
     setDataWarnings(warnings);
     try {
-      await ensureRecurringDueNotifications(target, normalizedRecurring);
+      await ensureRecurringDueNotifications(target, normalizedRecurring, activeUser);
     } catch (caught) {
       if (isMissingRelation(caught)) {
         setDataWarnings((current) => [...current, "Recurring reminders are unavailable because notifications is not in this Supabase schema."]);
@@ -393,18 +395,13 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setAiInsight(insightResult.data ? normalizeInsight(insightResult.data) : null);
   };
 
-  const refresh = async () => {
-    if (!user) {
-      clearHouseholdData();
-      setError(null);
-      setLoadIssue("none");
-      return;
-    }
-
+  const refresh = async (options: RefreshOptions = {}) => {
     if (!hasSupabaseEnv) {
+      const message = "Supabase environment variables are missing. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify.";
       clearHouseholdData();
-      setError("Supabase environment variables are missing. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify.");
+      setError(message);
       setLoadIssue("missing_env");
+      if (options.throwOnError) throw new Error(message);
       return;
     }
 
@@ -414,10 +411,22 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setDataWarnings([]);
 
     try {
+      const refreshedSession = await refreshSession();
+      const activeUser = refreshedSession?.user ?? null;
+
+      if (!activeUser) {
+        const message = "Your login session could not be found. Sign in again to refresh household data.";
+        clearHouseholdData();
+        setError(message);
+        setLoadIssue("load_failed");
+        if (options.throwOnError) throw new Error(message);
+        return;
+      }
+
       const { data, error: membershipError } = await supabase
         .from("household_members")
         .select("household_id,role,joined_at,households(*)")
-        .eq("user_id", user.id)
+        .eq("user_id", activeUser.id)
         .order("joined_at", { ascending: true });
 
       if (membershipError) throw membershipError;
@@ -430,13 +439,14 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       }
 
       setHousehold(target);
-      await loadHouseholdData(target);
+      await loadHouseholdData(target, activeUser);
       setLoadIssue("none");
     } catch (caught) {
       const issue = classifyLoadIssue(caught);
       const message = errorMessage(caught) || "Could not load household.";
       setLoadIssue(issue);
       setError(message);
+      if (options.throwOnError) throw caught instanceof Error ? caught : new Error(message);
     } finally {
       setLoading(false);
     }

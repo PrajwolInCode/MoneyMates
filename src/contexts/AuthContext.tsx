@@ -1,5 +1,5 @@
 import type { Session, User } from "@supabase/supabase-js";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../types";
 
@@ -13,6 +13,7 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
   updateProfile: (displayName: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  refreshSession: () => Promise<Session | null>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -37,6 +38,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setProfile(await fetchProfile(user.id));
   };
+
+  const refreshSession = useCallback(async () => {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+
+    if (!sessionData.session) {
+      setSession(null);
+      setProfile(null);
+      return null;
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+
+    const nextSession = userData.user ? { ...sessionData.session, user: userData.user } : sessionData.session;
+    setSession(nextSession);
+
+    if (!nextSession.user) {
+      setProfile(null);
+      return null;
+    }
+
+    try {
+      setProfile(await fetchProfile(nextSession.user.id));
+    } catch {
+      setProfile(null);
+    }
+
+    return nextSession;
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -113,8 +144,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await refreshProfile();
       },
       refreshProfile,
+      refreshSession,
     }),
-    [loading, profile, session, user],
+    [loading, profile, refreshSession, session, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

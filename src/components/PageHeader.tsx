@@ -13,7 +13,7 @@ export function PageHeader({ eyebrow, title, description, action }: PageHeaderPr
         <h1 className="mt-1 text-3xl font-bold tracking-normal text-ink sm:text-4xl">{title}</h1>
         {description ? <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65 sm:text-base">{description}</p> : null}
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {action ? <div className="w-full shrink-0 sm:w-auto">{action}</div> : null}
     </div>
   );
 }

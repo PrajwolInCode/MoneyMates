@@ -5,6 +5,7 @@ import { Card } from "../components/Card";
 import { FormField } from "../components/FormField";
 import { inputClass } from "../components/inputs";
 import { PageHeader } from "../components/PageHeader";
+import { RefreshDataButton } from "../components/RefreshDataButton";
 import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useAuth } from "../contexts/AuthContext";
@@ -188,6 +189,12 @@ export function SettingsPage() {
               {phonePushEnabled ? "Disable phone push" : "Enable phone push"}
             </Button>
           </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-xl font-bold tracking-normal text-ink">Account/Data</h2>
+          <p className="mt-2 text-sm leading-6 text-ink/65">Reload your session, household membership, and household data from Supabase.</p>
+          <RefreshDataButton className="mt-4 w-full sm:w-auto" />
         </Card>
 
         <Card>

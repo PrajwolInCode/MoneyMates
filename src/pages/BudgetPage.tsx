@@ -5,6 +5,7 @@ import { Card } from "../components/Card";
 import { FormField } from "../components/FormField";
 import { inputClass } from "../components/inputs";
 import { PageHeader } from "../components/PageHeader";
+import { RefreshDataButton } from "../components/RefreshDataButton";
 import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
@@ -361,10 +362,13 @@ export function BudgetPage() {
         title="Budget setup"
         description="Build a private household plan by adding income, bills, debt, spending, savings, and custom items."
         action={
-          <Button onClick={startAdd}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Add budget item
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <RefreshDataButton className="w-full sm:w-auto" />
+            <Button className="w-full sm:w-auto" onClick={startAdd}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add budget item
+            </Button>
+          </div>
         }
       />
 
