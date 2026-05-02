@@ -33,8 +33,8 @@ export function RefreshDataButton({ className, variant = "secondary" }: RefreshD
     setToast(null);
     setError(null);
     try {
-      await refresh({ throwOnError: true });
-      setToast("Data refreshed");
+      await refresh({ throwOnError: true, clearNotifications: true });
+      setToast("Data refreshed and notifications cleared");
     } catch (caught) {
       setError(messageFromError(caught));
     } finally {

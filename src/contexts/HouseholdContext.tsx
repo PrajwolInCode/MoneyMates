@@ -68,6 +68,7 @@ type DataLoadIssue =
   | "load_failed";
 type RefreshOptions = {
   throwOnError?: boolean;
+  clearNotifications?: boolean;
 };
 
 type HouseholdContextValue = {
@@ -309,6 +310,39 @@ function uniqueTables(tables: Array<BudgetItem["source_table"] | undefined>) {
   return Array.from(new Set(tables.filter((table): table is NonNullable<BudgetItem["source_table"]> => Boolean(table))));
 }
 
+function notificationClearStorageKey(householdId: string, userId: string) {
+  return `moneymates_notifications_cleared_${householdId}_${userId}`;
+}
+
+function getStoredNotificationClearAt(householdId: string, userId: string) {
+  try {
+    return window.localStorage.getItem(notificationClearStorageKey(householdId, userId));
+  } catch {
+    return null;
+  }
+}
+
+function setStoredNotificationClearAt(householdId: string, userId: string, readAt: string) {
+  try {
+    window.localStorage.setItem(notificationClearStorageKey(householdId, userId), readAt);
+  } catch {
+    // Local storage can be unavailable in private browser modes; database state still carries the read marker.
+  }
+}
+
+function applyStoredNotificationClear(notifications: Notification[], householdId: string, userId: string) {
+  const clearedAt = getStoredNotificationClearAt(householdId, userId);
+  if (!clearedAt) return notifications;
+  const clearedTime = Date.parse(clearedAt);
+  if (!Number.isFinite(clearedTime)) return notifications;
+  return notifications.map((item) => {
+    if (item.read_at) return item;
+    const createdTime = Date.parse(item.created_at);
+    if (!Number.isFinite(createdTime) || createdTime > clearedTime) return item;
+    return { ...item, read_at: clearedAt };
+  });
+}
+
 async function loadBudgetItemsForHousehold(householdId: string) {
   const warnings: string[] = [];
   const loadedById = new Map<string, BudgetItem>();
@@ -463,6 +497,21 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setDataWarnings([]);
   };
 
+  const markNotificationsReadForUser = async (householdId: string, userId: string, readAt = new Date().toISOString()) => {
+    setStoredNotificationClearAt(householdId, userId, readAt);
+    setNotifications((current) =>
+      current.map((item) => (item.household_id === householdId && item.user_id === userId && !item.read_at ? { ...item, read_at: readAt } : item)),
+    );
+    const { error: updateError } = await supabase
+      .from("notifications")
+      .update({ read_at: readAt })
+      .eq("household_id", householdId)
+      .eq("user_id", userId)
+      .is("read_at", null);
+    if (updateError && !isMissingRelation(updateError)) {
+      throw updateError;
+    }
+  };
 
   const ensureRecurringDueNotifications = async (target: Household, payments: RecurringPayment[], activeUser: User) => {
     const today = new Date();
@@ -549,7 +598,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setExpenses((expensesResult.data ?? []).map(normalizeExpense));
     const normalizedRecurring = recurringResult.data;
     setRecurringPayments(normalizedRecurring);
-    setNotifications(notificationsResult.data);
+    setNotifications(applyStoredNotificationClear(notificationsResult.data, target.id, activeUser.id));
     setExpenseComments(commentsResult.data);
     setDataWarnings(warnings);
     try {
@@ -644,6 +693,16 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       }
 
       setHousehold(target);
+      if (options.clearNotifications) {
+        try {
+          await markNotificationsReadForUser(target.id, activeUser.id);
+        } catch (notificationError) {
+          setDataWarnings((current) => [
+            ...current,
+            "Notifications were cleared on this device, but Supabase could not mark them read yet.",
+          ]);
+        }
+      }
       await loadHouseholdData(target, activeUser);
       setLoadIssue("none");
     } catch (caught) {
@@ -658,7 +717,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    void refresh();
+    void refresh({ clearNotifications: true });
   }, [authLoading, monthStart, user?.id]);
 
   useEffect(() => {
@@ -1132,13 +1191,14 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         }
       },
       markAllNotificationsRead: async () => {
-        if (!user) throw new Error("You need to be logged in.");
-        const readAt = new Date().toISOString();
-        setNotifications((current) => current.map((item) => (item.read_at ? item : { ...item, read_at: readAt })));
-        const { error: updateError } = await supabase.from("notifications").update({ read_at: readAt }).eq("user_id", user.id).is("read_at", null);
-        if (updateError) {
-          await refresh();
-          throw updateError;
+        if (!user || !household) throw new Error("You need to be logged in.");
+        try {
+          await markNotificationsReadForUser(household.id, user.id);
+        } catch {
+          setDataWarnings((current) => [
+            ...current,
+            "Notifications were cleared on this device, but Supabase could not mark them read yet.",
+          ]);
         }
       },
       addExpenseComment: async (expenseId, body) => {

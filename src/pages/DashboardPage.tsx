@@ -27,7 +27,7 @@ import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
-import { buildCoachPayload, dailyTrend, monthlyAmountForBudgetItem, spendingByCategory, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
+import { buildCoachPayload, dailyTrend, monthlyAmountForBudgetItem, spendingByCategory, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
 import { requestBudgetCoach } from "../lib/coach";
 import { formatMonthLabel } from "../lib/date";
 import { compactCurrency, currency, personName } from "../lib/format";
@@ -62,7 +62,13 @@ export function DashboardPage() {
   const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, budgetLimits), [expenses, categories, budgetLimits]);
   const trendRows = useMemo(() => dailyTrend(expenses), [expenses]);
-  const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length;
+  const legacyMonthlyIncome = Number(budgetMonth?.total_income ?? 0);
+  const legacyMonthlyPlan = totalBudget(budgetMonth, budgetLimits);
+  const itemMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItems);
+  const itemMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
+  const hasLegacyBudgetData = legacyMonthlyIncome > 0 || legacyMonthlyPlan > 0;
+  const hasBudgetPlanData = activeBudgetItems.length > 0 || hasLegacyBudgetData;
+  const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length && !hasLegacyBudgetData;
   const currentUserItems = useMemo(
     () => activeBudgetItems.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
     [activeBudgetItems, user?.id],
@@ -72,9 +78,10 @@ export function DashboardPage() {
     () => otherMembers.filter((member) => activeBudgetItems.some((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id)),
     [activeBudgetItems, otherMembers],
   );
-  const memberContributorCount = otherMembersWithData.length + (currentUserItems.length ? 1 : 0);
+  const currentUserHasBudgetData = currentUserItems.length > 0 || hasLegacyBudgetData;
+  const memberContributorCount = otherMembersWithData.length + (currentUserHasBudgetData ? 1 : 0);
   const waitingForPartnerData = members.length < 2 || otherMembersWithData.length === 0;
-  const combinedMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItems);
+  const combinedMonthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyMonthlyIncome;
   const combinedPersonalExpenses = monthlyItemTotal(
     activeBudgetItems,
     (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
@@ -85,11 +92,12 @@ export function DashboardPage() {
   );
   const combinedDebtRepayments = monthlyItemTotal(activeBudgetItems, (item) => item.type === "debt");
   const combinedSavingsGoal = monthlyItemTotal(activeBudgetItems, (item) => item.type === "saving" || item.type === "buffer");
-  const combinedMonthlyPlan = combinedPersonalExpenses + combinedSharedExpenses + combinedDebtRepayments + combinedSavingsGoal || totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
+  const combinedMonthlyPlan = combinedPersonalExpenses + combinedSharedExpenses + combinedDebtRepayments + combinedSavingsGoal || itemMonthlyPlan || legacyMonthlyPlan;
   const combinedExpectedRemaining = combinedMonthlyIncome - combinedMonthlyPlan;
   const savingsProgressAmount = Math.max(0, combinedMonthlyIncome - spent - (combinedMonthlyPlan - combinedSavingsGoal));
   const savingsProgress = combinedSavingsGoal > 0 ? Math.min(100, (savingsProgressAmount / combinedSavingsGoal) * 100) : 0;
-  const currentUserIncome = monthlyItemTotal(currentUserItems, (item) => item.type === "income");
+  const itemCurrentUserIncome = monthlyItemTotal(currentUserItems, (item) => item.type === "income");
+  const currentUserIncome = itemCurrentUserIncome > 0 ? itemCurrentUserIncome : itemMonthlyIncome > 0 ? 0 : legacyMonthlyIncome;
   const currentUserPersonalBills = monthlyItemTotal(
     currentUserItems,
     (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
@@ -195,7 +203,7 @@ export function DashboardPage() {
                 <p className="text-sm font-semibold text-moss">{waitingForPartnerData ? "Household setup" : "Combined household budget"}</p>
                 <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
                   {waitingForPartnerData
-                    ? currentUserItems.length
+                    ? currentUserHasBudgetData
                       ? "Your part is ready. Invite your partner so MoneyMates can build the full household picture."
                       : "Start your part so MoneyMates can build the household picture."
                     : "MoneyMates is combining member budget items into one shared plan."}
@@ -216,7 +224,7 @@ export function DashboardPage() {
                   {memberContributorCount}/{members.length || 1}
                 </p>
               </div>
-              {activeBudgetItems.length ? (
+              {hasBudgetPlanData ? (
                 <>
                   <div className="rounded-xl bg-mist px-3 py-3">
                     <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
@@ -247,7 +255,7 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {activeBudgetItems.length ? (
+      {hasBudgetPlanData ? (
         <Card className="mb-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -285,7 +293,7 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {waitingForPartnerData && currentUserItems.length ? (
+      {waitingForPartnerData && currentUserHasBudgetData ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {currentUserIncome > 0 ? (
             <Card>
