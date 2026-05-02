@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Bell, Copy, Download, LogOut, Save, Trash2 } from "lucide-react";
+import { Bell, Copy, Download, LogOut, Mail, Save, Trash2 } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { FixAppCacheButton } from "../components/FixAppCacheButton";
@@ -129,6 +129,22 @@ export function SettingsPage() {
 
   const exportBase = `moneymates-${formatMonthLabel(monthStart).toLowerCase().replaceAll(" ", "-")}`;
   const deletionUnlocked = deleteAcknowledged && deleteText === "DELETE";
+  const supportEmail = "prajwol.subedi@hotmail.com";
+  const supportMessage = [
+    "Hi Prajwol,",
+    "",
+    "MoneyMates has been useful for me, and I would like to support the work behind it.",
+    "",
+    "Please send me the best payment option.",
+    "",
+    "Thanks.",
+  ].join("\n");
+  const supportMailTo = `mailto:${supportEmail}?subject=${encodeURIComponent("Supporting MoneyMates")}&body=${encodeURIComponent(supportMessage)}`;
+
+  const copySupportMessage = async () => {
+    await navigator.clipboard.writeText(supportMessage);
+    setToast("Support message copied.");
+  };
 
   const handlePreviousMonth = async (event: FormEvent) => {
     event.preventDefault();
@@ -479,12 +495,22 @@ export function SettingsPage() {
 
         <Card>
           <h2 className="text-xl font-bold tracking-normal text-ink">Support MoneyMates</h2>
-          <p className="mt-2 text-sm leading-6 text-ink/65">
-            If MoneyMates helps you, and you would like to support the work and effort behind it, you can email:{" "}
-            <a className="font-semibold text-moss underline" href="mailto:prajwol.subedi@hotmail.com">
-              prajwol.subedi@hotmail.com
-            </a>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">
+            If MoneyMates helps you plan your month, a small contribution helps keep the app improving. Email me and I will send the best payment option.
           </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-ink focus:outline-none focus:ring-2 focus:ring-navy/25"
+              href={supportMailTo}
+            >
+              <Mail className="h-4 w-4" aria-hidden="true" />
+              Email to support
+            </a>
+            <Button variant="secondary" onClick={() => void copySupportMessage()}>
+              <Copy className="h-4 w-4" aria-hidden="true" />
+              Copy message
+            </Button>
+          </div>
         </Card>
       </div>
     </div>
