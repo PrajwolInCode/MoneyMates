@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { CircleDollarSign } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -26,29 +26,77 @@ function authErrorMessage(caught: unknown) {
 }
 
 export function AuthPage() {
-  const { user, loading, signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedMode = searchParams.get("mode");
+  const { user, loading, signIn, signUp, sendPasswordReset, updatePassword } = useAuth();
+  const [mode, setModeState] = useState<"signin" | "signup" | "forgot" | "reset">(requestedMode === "reset" ? "reset" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (loading) return <LoadingState />;
-  if (user) return <Navigate to="/" replace />;
+  if (user && mode !== "reset") return <Navigate to="/" replace />;
+
+  const setMode = (nextMode: "signin" | "signup" | "forgot" | "reset") => {
+    setModeState(nextMode);
+    setError(null);
+    setNotice(null);
+    if (nextMode === "reset") {
+      setSearchParams({ mode: "reset" }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
     setNotice(null);
 
-    if (!email.trim()) {
+    if (mode !== "reset" && !email.trim()) {
       setError("Enter your email address.");
+      return;
+    }
+    if (mode === "forgot") {
+      setSubmitting(true);
+      try {
+        await sendPasswordReset(email.trim());
+        setNotice("If an account exists for that email, Supabase will send a password reset link.");
+      } catch (caught) {
+        setError(authErrorMessage(caught));
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
     if (password.length < 6) {
       setError("Use at least 6 characters for your password.");
+      return;
+    }
+    if (mode === "reset") {
+      if (!user) {
+        setError("This reset link is invalid or expired. Request a new password reset email.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
+      setSubmitting(true);
+      try {
+        await updatePassword(password);
+        setNotice("Password updated.");
+        navigate("/", { replace: true });
+      } catch (caught) {
+        setError(authErrorMessage(caught));
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
     if (mode === "signup" && !displayName.trim()) {
@@ -83,22 +131,30 @@ export function AuthPage() {
         </div>
 
         <Card>
-          <div className="mb-5 grid grid-cols-2 rounded-xl bg-sage/60 p-1">
-            <button
-              type="button"
-              className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "signin" ? "bg-white text-navy shadow-sm" : "text-ink/60"}`}
-              onClick={() => setMode("signin")}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "signup" ? "bg-white text-navy shadow-sm" : "text-ink/60"}`}
-              onClick={() => setMode("signup")}
-            >
-              Sign up
-            </button>
-          </div>
+          {mode === "reset" ? (
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-moss">Password reset</p>
+              <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">Choose a new password</h2>
+              <p className="mt-2 text-sm leading-6 text-ink/65">Enter a new password for your MoneyMates account.</p>
+            </div>
+          ) : (
+            <div className="mb-5 grid grid-cols-2 rounded-xl bg-sage/60 p-1">
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "signin" ? "bg-white text-navy shadow-sm" : "text-ink/60"}`}
+                onClick={() => setMode("signin")}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === "signup" ? "bg-white text-navy shadow-sm" : "text-ink/60"}`}
+                onClick={() => setMode("signup")}
+              >
+                Sign up
+              </button>
+            </div>
+          )}
 
           {!hasSupabaseEnv ? (
             <div className="mb-4">
@@ -113,21 +169,41 @@ export function AuthPage() {
               </FormField>
             ) : null}
 
-            <FormField label="Email">
-              <input className={inputClass} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
-            </FormField>
+            {mode !== "reset" ? (
+              <FormField label="Email">
+                <input className={inputClass} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
+              </FormField>
+            ) : null}
 
-            <FormField label="Password">
-              <input className={inputClass} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </FormField>
+            {mode !== "forgot" ? (
+              <FormField label={mode === "reset" ? "New password" : "Password"}>
+                <input className={inputClass} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+              </FormField>
+            ) : null}
+
+            {mode === "reset" ? (
+              <FormField label="Confirm new password">
+                <input className={inputClass} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+              </FormField>
+            ) : null}
 
             {error ? <WarningBanner tone="strong">{error}</WarningBanner> : null}
             {notice ? <WarningBanner>{notice}</WarningBanner> : null}
 
             <Button type="submit" className="w-full" loading={submitting}>
-              {mode === "signin" ? "Sign in" : "Create account"}
+              {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Update password"}
             </Button>
           </form>
+
+          {mode === "signin" ? (
+            <button type="button" className="mt-4 w-full text-center text-sm font-semibold text-moss hover:text-navy" onClick={() => setMode("forgot")}>
+              Forgot password?
+            </button>
+          ) : mode === "forgot" || mode === "reset" ? (
+            <button type="button" className="mt-4 w-full text-center text-sm font-semibold text-moss hover:text-navy" onClick={() => setMode("signin")}>
+              Back to sign in
+            </button>
+          ) : null}
         </Card>
       </div>
     </main>
