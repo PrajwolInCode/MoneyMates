@@ -253,6 +253,24 @@ function isMissingColumn(caught: unknown) {
   );
 }
 
+function isRecoverableBudgetWriteError(caught: unknown) {
+  return isMissingRelation(caught) || isMissingColumn(caught) || classifyLoadIssue(caught) === "rls_denied";
+}
+
+function budgetWriteErrorMessage(caught: unknown) {
+  const message = errorMessage(caught);
+  if (classifyLoadIssue(caught) === "rls_denied") {
+    return "Budget item could not be saved because Supabase row level security blocked the write. Run the safe planned budget item schema/policy migrations, then refresh the app.";
+  }
+  if (isMissingColumn(caught)) {
+    return "Budget item could not be saved because Supabase is missing newer budget item columns. Run the safe planned budget item schema migrations, then refresh the app.";
+  }
+  if (isMissingRelation(caught)) {
+    return "Budget item could not be saved because the planned budget item table is missing. Run the safe planned budget item schema migration first.";
+  }
+  return message || "Could not save budget item.";
+}
+
 function warningForOptionalTable(tableName: string, caught: unknown) {
   if (isMissingRelation(caught)) return `${tableName} is not available in this Supabase schema.`;
   if (isMissingColumn(caught)) return `${tableName} has missing columns in this Supabase schema.`;
@@ -874,7 +892,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (updateError) {
-              if (isMissingRelation(updateError)) {
+              if (isRecoverableBudgetWriteError(updateError)) {
                 lastWriteError = updateError;
                 continue;
               }
@@ -895,7 +913,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
             insertError = fallback.error;
           }
           if (insertError) {
-            if (isMissingRelation(insertError)) {
+            if (isRecoverableBudgetWriteError(insertError)) {
               lastWriteError = insertError;
               continue;
             }
@@ -906,7 +924,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (!saved) {
-          throw new Error(errorMessage(lastWriteError) || "Could not save budget item because no budget item table is available.");
+          throw new Error(budgetWriteErrorMessage(lastWriteError));
         }
 
         void sendHouseholdPhonePush({

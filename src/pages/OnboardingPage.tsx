@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Check, Copy, Home, Share2, Sparkles, UsersRound, WalletCards } from "lucide-react";
+import { ArrowRight, Check, Copy, Home, Share2, Sparkles, UsersRound, WalletCards, X } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { FormField } from "../components/FormField";
@@ -119,6 +119,7 @@ export function OnboardingPage() {
   const [inviteDismissed, setInviteDismissed] = useState(false);
   const [activeTemplate, setActiveTemplate] = useState<BudgetOnboardingTemplate>(ONBOARDING_TEMPLATES[0]);
   const [draft, setDraft] = useState<BudgetDraft>(() => draftFromTemplate(ONBOARDING_TEMPLATES[0]));
+  const [budgetSheetOpen, setBudgetSheetOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<OnboardingSuggestion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -158,6 +159,7 @@ export function OnboardingPage() {
   const startTemplate = (template: BudgetOnboardingTemplate) => {
     setActiveTemplate(template);
     setDraft(draftFromTemplate(template));
+    setBudgetSheetOpen(true);
     setError(null);
     setNotice(null);
   };
@@ -176,6 +178,7 @@ export function OnboardingPage() {
       scope: suggestion.scope,
     });
     setDraft(draftFromSuggestion(suggestion));
+    setBudgetSheetOpen(true);
     setNotice("Suggestion loaded. Add an amount if you know it, or leave it blank for later.");
   };
 
@@ -279,6 +282,7 @@ export function OnboardingPage() {
       });
       setNotice(`${itemName} added to your part of the budget.`);
       setDraft(draftFromTemplate(activeTemplate));
+      setBudgetSheetOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save budget item.");
     } finally {
@@ -477,16 +481,21 @@ export function OnboardingPage() {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-3 text-xs font-medium text-ink/55">Examples: {template.examples.join(", ")}</p>
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <p className="text-xs font-medium text-ink/55">Examples: {template.examples.join(", ")}</p>
+                        <span className="shrink-0 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white">Add</span>
+                      </div>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="space-y-4">
+            {budgetSheetOpen ? <div className="fixed inset-0 z-40 bg-ink/35 lg:hidden" onClick={() => setBudgetSheetOpen(false)} /> : null}
+            <div className={`${budgetSheetOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[92vh] overflow-auto rounded-t-3xl bg-white p-4 shadow-soft" : "hidden"} space-y-4 lg:static lg:block lg:max-h-none lg:overflow-visible lg:rounded-none lg:bg-transparent lg:p-0 lg:shadow-none`}>
               <Card>
-                <div className="flex items-start gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
                   <div className="rounded-xl bg-sage p-2 text-navy">
                     <WalletCards className="h-5 w-5" aria-hidden="true" />
                   </div>
@@ -495,6 +504,10 @@ export function OnboardingPage() {
                     <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">{activeTemplate.title}</h2>
                     <p className="mt-1 text-sm leading-6 text-ink/60">{activeTemplate.description}</p>
                   </div>
+                  </div>
+                  <button className="rounded-xl border border-sage p-2 text-ink/70 lg:hidden" type="button" aria-label="Close add item" onClick={() => setBudgetSheetOpen(false)}>
+                    <X className="h-5 w-5" aria-hidden="true" />
+                  </button>
                 </div>
 
                 <form className="mt-5 space-y-4" onSubmit={handleBudgetItem}>
