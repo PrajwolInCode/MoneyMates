@@ -4,12 +4,12 @@ import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { inputClass } from "../components/inputs";
+import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
-import { BUDGET_START_MONTH } from "../lib/constants";
 import { formatMonthLabel, getMonthBounds, monthInputToStart, monthStartToInput } from "../lib/date";
 import { exportSummaryPdf, exportTransactionsCsv, exportTransactionsExcel } from "../lib/export";
 import { currency } from "../lib/format";
@@ -73,9 +73,25 @@ async function loadReportBudgetItems(householdId: string) {
   return Array.from(loadedById.values());
 }
 
+async function loadReportAiInsight(budgetMonthId: string) {
+  const { data, error } = await supabase
+    .from("ai_insights")
+    .select("*")
+    .eq("budget_month_id", budgetMonthId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingRelation(error)) return null;
+    throw error;
+  }
+
+  return data ? normalizeInsight(data) : null;
+}
+
 export function ReportsPage() {
-  const { household, categories, members, monthStart } = useHousehold();
-  const [selectedMonth, setSelectedMonth] = useState(monthStartToInput(monthStart));
+  const { household, categories, members, monthStart, setSelectedMonth } = useHousehold();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [budgetMonth, setBudgetMonth] = useState<BudgetMonth | null>(null);
   const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([]);
@@ -84,7 +100,8 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedStart = monthInputToStart(selectedMonth);
+  const selectedStart = monthStart;
+  const selectedMonthInput = monthStartToInput(monthStart);
   const monthLabel = formatMonthLabel(selectedStart);
   const spent = useMemo(() => totalSpent(expenses), [expenses]);
   const manualPlanned = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(budgetItems), [budgetItems]);
@@ -140,21 +157,14 @@ export function ReportsPage() {
 
         const [limitResult, insightResult] = await Promise.all([
           supabase.from("budget_limits").select("*").eq("budget_month_id", nextBudgetMonth.id),
-          supabase
-            .from("ai_insights")
-            .select("*")
-            .eq("budget_month_id", nextBudgetMonth.id)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
+          loadReportAiInsight(nextBudgetMonth.id),
         ]);
 
         if (limitResult.error) throw limitResult.error;
-        if (insightResult.error) throw insightResult.error;
         if (!mounted) return;
 
         setLimits((limitResult.data ?? []).map((limit: any) => ({ ...limit, amount: Number(limit.amount) })));
-        setAiInsight(insightResult.data ? normalizeInsight(insightResult.data) : null);
+        setAiInsight(insightResult);
       } catch (caught) {
         if (mounted) setError(caught instanceof Error ? caught.message : "Could not load report.");
       } finally {
@@ -168,7 +178,7 @@ export function ReportsPage() {
     };
   }, [household, selectedStart]);
 
-  const filenameBase = `${household?.name ?? "moneymates"}-${selectedMonth}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+  const filenameBase = `${household?.name ?? "moneymates"}-${selectedMonthInput}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
 
   return (
     <div>
@@ -176,6 +186,7 @@ export function ReportsPage() {
         eyebrow="Exports"
         title="Reports"
         description="Choose a month, then export transactions or a summary you can keep with household records."
+        action={<MonthSelector />}
       />
 
       {error ? (
@@ -191,9 +202,8 @@ export function ReportsPage() {
             <input
               className={inputClass}
               type="month"
-              min={monthStartToInput(BUDGET_START_MONTH)}
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value)}
+              value={selectedMonthInput}
+              onChange={(event) => setSelectedMonth(monthInputToStart(event.target.value))}
             />
           </label>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -294,7 +304,11 @@ export function ReportsPage() {
       <Card className="mt-5">
         <h2 className="text-xl font-bold tracking-normal text-ink">Transactions</h2>
         <div className="mt-2">
-          <TransactionsList expenses={expenses} />
+          <TransactionsList
+            expenses={expenses}
+            emptyTitle="No expenses for this month yet"
+            emptyMessage="Use the month selector to review another month, or add an expense for this one."
+          />
         </div>
       </Card>
     </div>

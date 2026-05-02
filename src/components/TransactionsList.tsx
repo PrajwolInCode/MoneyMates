@@ -9,9 +9,11 @@ import { useHousehold } from "../contexts/HouseholdContext";
 type TransactionsListProps = {
   expenses: Expense[];
   limit?: number;
+  emptyTitle?: string;
+  emptyMessage?: string;
 };
 
-export function TransactionsList({ expenses, limit }: TransactionsListProps) {
+export function TransactionsList({ expenses, limit, emptyTitle = "No expenses yet", emptyMessage = "Your first saved expense will appear here with who added it." }: TransactionsListProps) {
   const { expenseComments, addExpenseComment } = useHousehold();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const rows = limit ? expenses.slice(0, limit) : expenses;
@@ -25,7 +27,7 @@ export function TransactionsList({ expenses, limit }: TransactionsListProps) {
   }, [expenseComments]);
 
   if (!rows.length) {
-    return <EmptyState icon={ReceiptText} title="No expenses yet" message="Your first saved expense will appear here with who added it." />;
+    return <EmptyState icon={ReceiptText} title={emptyTitle} message={emptyMessage} />;
   }
 
   const submitComment = async (event: FormEvent, expenseId: string) => {

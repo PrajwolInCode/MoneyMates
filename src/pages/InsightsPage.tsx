@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieCh
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
+import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
@@ -65,9 +66,12 @@ export function InsightsPage() {
         title="Insights"
         description="Use this page for the calmer patterns: category pressure, daily rhythm, person split, and coaching."
         action={
-          <Button onClick={handleCoach} loading={loading}>
-            Ask coach
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <MonthSelector />
+            <Button className="w-full sm:w-auto" onClick={handleCoach} loading={loading}>
+              Ask coach
+            </Button>
+          </div>
         }
       />
 

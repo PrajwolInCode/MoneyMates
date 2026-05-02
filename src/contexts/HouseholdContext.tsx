@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { DEFAULT_CATEGORIES } from "../lib/constants";
-import { getMonthBounds, getMonthStart } from "../lib/date";
+import { addMonthsToMonthStart, getMonthBounds, getMonthStart } from "../lib/date";
 import { sendHouseholdPhonePush } from "../lib/pushNotifications";
 import { hasSupabaseEnv, supabase } from "../lib/supabase";
 import type {
@@ -67,11 +67,15 @@ type HouseholdContextValue = {
   unreadNotificationCount: number;
   aiInsight: AiInsight | null;
   monthStart: string;
+  selectedMonth: string;
   loading: boolean;
   error: string | null;
   loadIssue: DataLoadIssue;
   dataWarnings: string[];
   isOwner: boolean;
+  setSelectedMonth: (monthStart: string) => void;
+  goToPreviousMonth: () => void;
+  goToNextMonth: () => void;
   refresh: (options?: RefreshOptions) => Promise<void>;
   createHousehold: (name: string) => Promise<void>;
   joinHousehold: (joinCode: string) => Promise<void>;
@@ -231,8 +235,44 @@ async function loadOptionalExpenseComments(householdId: string) {
   return { data: (data ?? []).map((row: any) => ({ ...row, profile: row.profiles ?? null })), warning: null };
 }
 
+async function loadOptionalRecurringPayments(householdId: string) {
+  const { data, error: recurringError } = await supabase
+    .from("recurring_payments")
+    .select("*,categories(*)")
+    .eq("household_id", householdId)
+    .order("due_day", { ascending: true });
+
+  if (recurringError) {
+    if (isMissingRelation(recurringError)) {
+      return { data: [] as RecurringPayment[], warning: "recurring_payments is not available in this Supabase schema." };
+    }
+    throw recurringError;
+  }
+
+  return { data: (data ?? []).map(normalizeRecurring), warning: null };
+}
+
+async function loadOptionalAiInsight(budgetMonthId: string) {
+  const { data, error: insightError } = await supabase
+    .from("ai_insights")
+    .select("*")
+    .eq("budget_month_id", budgetMonthId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (insightError) {
+    if (isMissingRelation(insightError)) {
+      return { data: null as AiInsight | null, warning: "ai_insights is not available in this Supabase schema." };
+    }
+    throw insightError;
+  }
+
+  return { data: data ? normalizeInsight(data) : null, warning: null };
+}
+
 export function HouseholdProvider({ children }: { children: React.ReactNode }) {
-  const { user, refreshSession } = useAuth();
+  const { user, loading: authLoading, refreshSession } = useAuth();
   const [household, setHousehold] = useState<Household | null>(null);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -248,7 +288,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [loadIssue, setLoadIssue] = useState<DataLoadIssue>("none");
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
-  const monthStart = getMonthStart();
+  const [selectedMonth, setSelectedMonthState] = useState(getMonthStart);
+  const monthStart = selectedMonth;
 
   const isOwner = Boolean(household && user && household.owner_id === user.id);
   const currentUserLabel = () => user?.user_metadata.display_name || user?.email || "A household member";
@@ -326,18 +367,13 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .lte("spent_on", bounds.end)
         .order("spent_on", { ascending: false })
         .order("created_at", { ascending: false }),
-      supabase
-        .from("recurring_payments")
-        .select("*,categories(*)")
-        .eq("household_id", target.id)
-        .order("due_day", { ascending: true }),
+      loadOptionalRecurringPayments(target.id),
     ]);
 
     if (membersResult.error) throw membersResult.error;
     if (categoriesResult.error) throw categoriesResult.error;
     if (budgetMonthResult.error) throw budgetMonthResult.error;
     if (expensesResult.error) throw expensesResult.error;
-    if (recurringResult.error) throw recurringResult.error;
 
     const [budgetItemsResult, notificationsResult, commentsResult] = await Promise.all([
       loadBudgetItemsForHousehold(target.id),
@@ -346,6 +382,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     ]);
     const warnings = [
       ...budgetItemsResult.warnings,
+      recurringResult.warning,
       notificationsResult.warning,
       commentsResult.warning,
     ].filter((item): item is string => Boolean(item));
@@ -356,7 +393,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setBudgetMonth(nextBudgetMonth);
     setBudgetItems(budgetItemsResult.data);
     setExpenses((expensesResult.data ?? []).map(normalizeExpense));
-    const normalizedRecurring = (recurringResult.data ?? []).map(normalizeRecurring);
+    const normalizedRecurring = recurringResult.data;
     setRecurringPayments(normalizedRecurring);
     setNotifications(notificationsResult.data);
     setExpenseComments(commentsResult.data);
@@ -379,23 +416,28 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
 
     const [limitsResult, insightResult] = await Promise.all([
       supabase.from("budget_limits").select("*").eq("budget_month_id", nextBudgetMonth.id),
-      supabase
-        .from("ai_insights")
-        .select("*")
-        .eq("budget_month_id", nextBudgetMonth.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      loadOptionalAiInsight(nextBudgetMonth.id),
     ]);
 
     if (limitsResult.error) throw limitsResult.error;
-    if (insightResult.error) throw insightResult.error;
 
     setBudgetLimits((limitsResult.data ?? []).map((limit: any) => ({ ...limit, amount: Number(limit.amount) })));
-    setAiInsight(insightResult.data ? normalizeInsight(insightResult.data) : null);
+    setAiInsight(insightResult.data);
+    if (insightResult.warning) {
+      setDataWarnings((current) => [...current, insightResult.warning].filter((item, index, list) => list.indexOf(item) === index));
+    }
   };
 
   const refresh = async (options: RefreshOptions = {}) => {
+    if (authLoading) return;
+
+    if (!user && !options.throwOnError) {
+      clearHouseholdData();
+      setError(null);
+      setLoadIssue("none");
+      return;
+    }
+
     if (!hasSupabaseEnv) {
       const message = "Supabase environment variables are missing. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify.";
       clearHouseholdData();
@@ -411,8 +453,17 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setDataWarnings([]);
 
     try {
-      const refreshedSession = await refreshSession();
-      const activeUser = refreshedSession?.user ?? null;
+      let activeUser = user ?? null;
+      try {
+        const refreshedSession = await refreshSession();
+        activeUser = refreshedSession?.user ?? activeUser;
+      } catch (sessionError) {
+        if (options.throwOnError || !activeUser) throw sessionError;
+        setDataWarnings((current) => [
+          ...current,
+          "Could not verify the Supabase session, so MoneyMates used the current logged-in user to load household data.",
+        ]);
+      }
 
       if (!activeUser) {
         const message = "Your login session could not be found. Sign in again to refresh household data.";
@@ -454,7 +505,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void refresh();
-  }, [user?.id]);
+  }, [authLoading, monthStart, user?.id]);
 
   useEffect(() => {
     if (!household || !user) return;
@@ -491,6 +542,18 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     return created;
   };
 
+  const setSelectedMonth = (nextMonthStart: string) => {
+    setSelectedMonthState(nextMonthStart || getMonthStart());
+  };
+
+  const goToPreviousMonth = () => {
+    setSelectedMonthState((current) => addMonthsToMonthStart(current, -1));
+  };
+
+  const goToNextMonth = () => {
+    setSelectedMonthState((current) => addMonthsToMonthStart(current, 1));
+  };
+
   const value = useMemo<HouseholdContextValue>(
     () => ({
       household,
@@ -506,11 +569,15 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       aiInsight,
       unreadNotificationCount: notifications.filter((item) => !item.read_at).length,
       monthStart,
+      selectedMonth,
       loading,
       error,
       loadIssue,
       dataWarnings,
       isOwner,
+      setSelectedMonth,
+      goToPreviousMonth,
+      goToNextMonth,
       refresh,
       createHousehold: async (name) => {
         if (!user) throw new Error("You need to be logged in.");
@@ -820,12 +887,15 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       expenseComments,
       aiInsight,
       monthStart,
+      selectedMonth,
       loading,
       error,
       loadIssue,
       dataWarnings,
       isOwner,
+      authLoading,
       user,
+      refreshSession,
     ],
   );
 

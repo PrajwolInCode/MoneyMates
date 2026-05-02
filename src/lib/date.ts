@@ -1,5 +1,3 @@
-import { BUDGET_START_MONTH } from "./constants";
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function toISODate(date: Date) {
@@ -8,17 +6,21 @@ export function toISODate(date: Date) {
 }
 
 export function getMonthStart(date = new Date()) {
-  const localMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
-  return localMonth < BUDGET_START_MONTH ? BUDGET_START_MONTH : localMonth;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 export function monthInputToStart(value: string) {
-  if (!value) return BUDGET_START_MONTH;
+  if (!value) return getMonthStart();
   return `${value}-01`;
 }
 
 export function monthStartToInput(value: string) {
   return value.slice(0, 7);
+}
+
+export function addMonthsToMonthStart(monthStart: string, offset: number) {
+  const [year, month] = monthStart.split("-").map(Number);
+  return getMonthStart(new Date(year, month - 1 + offset, 1));
 }
 
 export function getMonthBounds(monthStart: string) {

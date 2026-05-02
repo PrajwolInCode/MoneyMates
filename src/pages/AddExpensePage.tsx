@@ -8,7 +8,6 @@ import { PageHeader } from "../components/PageHeader";
 import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
-import { BUDGET_START_MONTH } from "../lib/constants";
 import { toISODate } from "../lib/date";
 
 type FormErrors = {
@@ -50,8 +49,8 @@ export function AddExpensePage() {
     if (!categoryId) {
       nextErrors.category = "Choose a category.";
     }
-    if (!spentOn || spentOn < BUDGET_START_MONTH) {
-      nextErrors.date = "Choose a date on or after 1 May 2026.";
+    if (!spentOn) {
+      nextErrors.date = "Choose a date.";
     }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -114,7 +113,7 @@ export function AddExpensePage() {
           </FormField>
 
           <FormField label="Date" error={errors.date}>
-            <input className={inputClass} type="date" min={BUDGET_START_MONTH} value={spentOn} onChange={(event) => setSpentOn(event.target.value)} />
+            <input className={inputClass} type="date" value={spentOn} onChange={(event) => setSpentOn(event.target.value)} />
           </FormField>
 
           <FormField label="Merchant or place">

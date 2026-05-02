@@ -20,6 +20,7 @@ import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { CategoryProgressList } from "../components/CategoryProgressList";
 import { EmptyState } from "../components/EmptyState";
+import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
 import { RecurringList } from "../components/RecurringList";
 import { RefreshDataButton } from "../components/RefreshDataButton";
@@ -108,6 +109,7 @@ export function DashboardPage() {
         description="A simple daily view of what has been spent, what remains, and where a small adjustment would help."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <MonthSelector />
             <RefreshDataButton className="w-full sm:w-auto" />
             <Link
               to="/add"
@@ -283,7 +285,12 @@ export function DashboardPage() {
         <Card>
           <h2 className="text-xl font-bold tracking-normal text-ink">Recent transactions</h2>
           <div className="mt-2">
-            <TransactionsList expenses={expenses} limit={6} />
+            <TransactionsList
+              expenses={expenses}
+              limit={6}
+              emptyTitle="No expenses for this month yet"
+              emptyMessage="Use the month selector to review another month, or add an expense for this one."
+            />
           </div>
         </Card>
         <Card>
