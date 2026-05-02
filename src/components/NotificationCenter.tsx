@@ -1,5 +1,5 @@
 import { Bell } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { formatShortDate } from "../lib/date";
@@ -7,8 +7,19 @@ import { formatShortDate } from "../lib/date";
 export function NotificationCenter() {
   const { notifications, unreadNotificationCount, markNotificationRead, markAllNotificationsRead } = useHousehold();
   const [open, setOpen] = useState(false);
+  const autoMarkedOpen = useRef(false);
   const navigate = useNavigate();
   const top = useMemo(() => notifications.slice(0, 12), [notifications]);
+
+  useEffect(() => {
+    if (!open) {
+      autoMarkedOpen.current = false;
+      return;
+    }
+    if (autoMarkedOpen.current || unreadNotificationCount === 0) return;
+    autoMarkedOpen.current = true;
+    void markAllNotificationsRead();
+  }, [markAllNotificationsRead, open, unreadNotificationCount]);
 
   return (
     <div className="relative">

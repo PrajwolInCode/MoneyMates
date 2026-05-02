@@ -113,9 +113,12 @@ For the generic budget item UI, run the migrations through:
 supabase/migrations/20260502_fix_planned_budget_items_schema.sql
 supabase/migrations/202605030002_generic_budget_items_notifications_push.sql
 supabase/migrations/202605030003_rename_budget_items_to_planned_budget_items.sql
+supabase/migrations/202605030010_budget_item_save_repair.sql
 ```
 
 The `20260502_fix_planned_budget_items_schema.sql` migration is an idempotent production safety fix for older Supabase projects where `planned_budget_items` exists but is missing columns such as `archived_at`. It only creates/adds columns, policies, and indexes; it does not delete, reset, seed, or overwrite household data.
+
+The `202605030010_budget_item_save_repair.sql` migration is the current repair script for budget item and income saves. It safely creates or repairs the planned budget item save RPC, RLS policies, notification read policies, and notification triggers so missing optional notification setup does not block income or budget item saves.
 
 The frontend reads and writes planned budget items through `planned_budget_items`. If optional budget item fields are temporarily missing, expenses and household data should still load while the Budget page shows a warning.
 

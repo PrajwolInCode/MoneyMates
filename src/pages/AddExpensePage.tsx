@@ -10,12 +10,22 @@ import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { toISODate } from "../lib/date";
+import { currency } from "../lib/format";
 
 type FormErrors = {
   amount?: string;
   category?: string;
   date?: string;
 };
+
+const QUICK_BUDGET_LINKS = [
+  { label: "Add income", href: "/budget?add=income" },
+  { label: "Add bill", href: "/budget?add=bill" },
+  { label: "Add shared expense", href: "/budget?add=shared_expense" },
+  { label: "Add personal expense", href: "/budget?add=personal_expense" },
+  { label: "Add debt repayment", href: "/budget?add=debt" },
+  { label: "Add savings goal", href: "/budget?add=saving" },
+];
 
 export function AddExpensePage() {
   const { categories, addExpense } = useHousehold();
@@ -64,8 +74,10 @@ export function AddExpensePage() {
 
     setSaving(true);
     try {
+      const savedAmount = Number(amount);
+      const categoryName = categories.find((category) => category.id === categoryId)?.name ?? "Expense";
       await addExpense({
-        amount: Number(amount),
+        amount: savedAmount,
         category_id: categoryId,
         spent_on: spentOn,
         merchant: merchant.trim(),
@@ -74,7 +86,7 @@ export function AddExpensePage() {
       setAmount("");
       setMerchant("");
       setNote("");
-      setToast("Expense saved. Your household totals are updated.");
+      setToast(`Added expense: ${categoryName} - ${currency(savedAmount)}.`);
     } catch (caught) {
       setSaveError(caught instanceof Error ? caught.message : "Could not save expense.");
     } finally {
@@ -92,13 +104,12 @@ export function AddExpensePage() {
       />
 
       <Card className="mx-auto max-w-2xl">
-        <div className="mb-5 grid gap-2 sm:grid-cols-2">
-          <Link className="rounded-2xl bg-sage/60 p-4 text-sm font-semibold text-ink hover:bg-sage" to="/budget?add=income">
-            Add income
-          </Link>
-          <Link className="rounded-2xl bg-sage/60 p-4 text-sm font-semibold text-ink hover:bg-sage" to="/budget?add=shared_expense">
-            Add shared expense
-          </Link>
+        <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {QUICK_BUDGET_LINKS.map((item) => (
+            <Link key={item.href} className="rounded-xl bg-sage/60 p-3 text-sm font-semibold text-ink hover:bg-sage" to={item.href}>
+              {item.label}
+            </Link>
+          ))}
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <FormField label="Amount" error={errors.amount}>

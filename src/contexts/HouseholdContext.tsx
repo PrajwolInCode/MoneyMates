@@ -237,6 +237,24 @@ function isMissingRelation(caught: unknown) {
   return message.includes("could not find the table") || code === "42p01" || code === "pgrst205";
 }
 
+function errorDiagnostic(caught: unknown) {
+  const message = errorMessage(caught);
+  if (typeof caught !== "object" || !caught) return message;
+  const details = "details" in caught ? String((caught as { details?: unknown }).details ?? "") : "";
+  const hint = "hint" in caught ? String((caught as { hint?: unknown }).hint ?? "") : "";
+  return [message, details, hint].filter(Boolean).join(" ");
+}
+
+function isMissingRelationForTable(caught: unknown, tableName: string) {
+  const message = errorDiagnostic(caught).toLowerCase();
+  return (
+    message.includes(`public.${tableName}`) ||
+    message.includes(`'${tableName}'`) ||
+    message.includes(`"${tableName}"`) ||
+    message.includes(` ${tableName} `)
+  );
+}
+
 function isMissingFunction(caught: unknown) {
   const message = errorMessage(caught).toLowerCase();
   const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
@@ -253,12 +271,21 @@ function isMissingColumn(caught: unknown) {
   );
 }
 
-function isRecoverableBudgetWriteError(caught: unknown) {
-  return isMissingRelation(caught) || isMissingColumn(caught) || classifyLoadIssue(caught) === "rls_denied";
+function isRecoverableBudgetWriteError(caught: unknown, tableName?: string) {
+  if (isMissingRelation(caught)) {
+    return !tableName || isMissingRelationForTable(caught, tableName);
+  }
+  return isMissingColumn(caught) || classifyLoadIssue(caught) === "rls_denied";
 }
 
 function budgetWriteErrorMessage(caught: unknown) {
-  const message = errorMessage(caught);
+  const message = errorDiagnostic(caught);
+  if (isMissingRelation(caught) && message.toLowerCase().includes("notifications")) {
+    return "Budget item could not be saved because a database notification trigger is missing the notifications table. Run supabase/migrations/202605030010_budget_item_save_repair.sql, then refresh the app.";
+  }
+  if (isMissingFunction(caught)) {
+    return "Budget item could not be saved because the Supabase save function is not installed or the API schema cache has not refreshed. Run supabase/migrations/202605030010_budget_item_save_repair.sql, then refresh the app.";
+  }
   if (classifyLoadIssue(caught) === "rls_denied") {
     return "Budget item could not be saved because Supabase row level security blocked the write. Run the safe planned budget item schema/policy migrations, then refresh the app.";
   }
@@ -286,7 +313,8 @@ async function loadBudgetItemsForHousehold(householdId: string) {
   const warnings: string[] = [];
   const loadedById = new Map<string, BudgetItem>();
   const tableNames = ["planned_budget_items", "budget_items"];
-  let hadBudgetItemError = false;
+  let loadedFromAnyTable = false;
+  let primaryTableFailed = false;
 
   for (const tableName of tableNames) {
     const { data, error: tableError } = await supabase
@@ -295,11 +323,17 @@ async function loadBudgetItemsForHousehold(householdId: string) {
       .eq("household_id", householdId);
 
     if (tableError) {
-      hadBudgetItemError = true;
+      if (tableName === "budget_items" && isMissingRelation(tableError)) {
+        continue;
+      }
+      if (tableName === "planned_budget_items") {
+        primaryTableFailed = true;
+      }
       warnings.push(warningForOptionalTable(tableName, tableError));
       continue;
     }
 
+    loadedFromAnyTable = true;
     (data ?? [])
       .map((row: any) => normalizeBudgetItem(row, tableName as BudgetItem["source_table"]))
       .filter((item) => !item.archived_at)
@@ -314,7 +348,7 @@ async function loadBudgetItemsForHousehold(householdId: string) {
     return first.item_name.localeCompare(second.item_name);
   });
 
-  if (hadBudgetItemError) {
+  if (primaryTableFailed && !loadedFromAnyTable) {
     warnings.unshift("Budget items could not load. Your expenses and household data are still safe.");
   }
 
@@ -923,11 +957,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (updateError) {
-              if (isRecoverableBudgetWriteError(updateError)) {
+              if (isRecoverableBudgetWriteError(updateError, tableName)) {
                 lastWriteError = updateError;
                 continue;
               }
-              throw updateError;
+              throw new Error(budgetWriteErrorMessage(updateError));
             }
             if (!updatedRow) continue;
             saved = true;
@@ -944,11 +978,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
             insertError = fallback.error;
           }
           if (insertError) {
-            if (isRecoverableBudgetWriteError(insertError)) {
+            if (isRecoverableBudgetWriteError(insertError, tableName)) {
               lastWriteError = insertError;
               continue;
             }
-            throw insertError;
+            throw new Error(budgetWriteErrorMessage(insertError));
           }
           saved = true;
           break;
@@ -996,11 +1030,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (archiveError) {
-            if (isMissingRelation(archiveError)) {
+            if (isMissingRelation(archiveError) && isMissingRelationForTable(archiveError, tableName)) {
               lastArchiveError = archiveError;
               continue;
             }
-            throw archiveError;
+            throw new Error(budgetWriteErrorMessage(archiveError));
           }
           if (!updatedRow) continue;
           archived = true;
@@ -1090,16 +1124,22 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       markNotificationRead: async (id) => {
         if (!user) throw new Error("You need to be logged in.");
         const readAt = new Date().toISOString();
+        setNotifications((current) => current.map((item) => (item.id === id ? { ...item, read_at: item.read_at ?? readAt } : item)));
         const { error: updateError } = await supabase.from("notifications").update({ read_at: readAt }).eq("id", id).eq("user_id", user.id);
-        if (updateError) throw updateError;
-        setNotifications((current) => current.map((item) => (item.id === id ? { ...item, read_at: readAt } : item)));
+        if (updateError) {
+          await refresh();
+          throw updateError;
+        }
       },
       markAllNotificationsRead: async () => {
         if (!user) throw new Error("You need to be logged in.");
         const readAt = new Date().toISOString();
-        const { error: updateError } = await supabase.from("notifications").update({ read_at: readAt }).eq("user_id", user.id).is("read_at", null);
-        if (updateError) throw updateError;
         setNotifications((current) => current.map((item) => (item.read_at ? item : { ...item, read_at: readAt })));
+        const { error: updateError } = await supabase.from("notifications").update({ read_at: readAt }).eq("user_id", user.id).is("read_at", null);
+        if (updateError) {
+          await refresh();
+          throw updateError;
+        }
       },
       addExpenseComment: async (expenseId, body) => {
         if (!household || !user) throw new Error("Create a household first.");

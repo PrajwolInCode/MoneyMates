@@ -216,14 +216,18 @@ export function DashboardPage() {
                   {memberContributorCount}/{members.length || 1}
                 </p>
               </div>
-              <div className="rounded-xl bg-mist px-3 py-3">
-                <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
-                <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyIncome)}</p>
-              </div>
-              <div className="rounded-xl bg-mist px-3 py-3">
-                <p className="text-xs font-semibold uppercase text-ink/45">Plan</p>
-                <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyPlan)}</p>
-              </div>
+              {activeBudgetItems.length ? (
+                <>
+                  <div className="rounded-xl bg-mist px-3 py-3">
+                    <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
+                    <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyIncome)}</p>
+                  </div>
+                  <div className="rounded-xl bg-mist px-3 py-3">
+                    <p className="text-xs font-semibold uppercase text-ink/45">Plan</p>
+                    <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyPlan)}</p>
+                  </div>
+                </>
+              ) : null}
               {waitingForPartnerData ? (
                 <>
                   <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyJoinCode()}>
@@ -281,24 +285,32 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {waitingForPartnerData ? (
+      {waitingForPartnerData && currentUserItems.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <p className="text-sm font-semibold text-moss">Your income</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserIncome)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Your personal bills</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserPersonalBills)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Your planned savings</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserSavings)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Your expected remaining</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserExpectedRemaining)}</p>
-          </Card>
+          {currentUserIncome > 0 ? (
+            <Card>
+              <p className="text-sm font-semibold text-moss">Your income</p>
+              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserIncome)}</p>
+            </Card>
+          ) : null}
+          {currentUserPersonalBills > 0 ? (
+            <Card>
+              <p className="text-sm font-semibold text-moss">Your personal bills</p>
+              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserPersonalBills)}</p>
+            </Card>
+          ) : null}
+          {currentUserSavings > 0 ? (
+            <Card>
+              <p className="text-sm font-semibold text-moss">Your planned savings</p>
+              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserSavings)}</p>
+            </Card>
+          ) : null}
+          {currentUserIncome > 0 || currentUserPersonalBills > 0 || currentUserSharedExpenses > 0 || currentUserDebt > 0 || currentUserSavings > 0 ? (
+            <Card>
+              <p className="text-sm font-semibold text-moss">Your expected remaining</p>
+              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserExpectedRemaining)}</p>
+            </Card>
+          ) : null}
           <Card className="sm:col-span-2 lg:col-span-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -313,7 +325,7 @@ export function DashboardPage() {
             </div>
           </Card>
         </div>
-      ) : (
+      ) : !waitingForPartnerData ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Card>
             <p className="text-sm font-semibold text-moss">Combined income</p>
@@ -355,7 +367,7 @@ export function DashboardPage() {
             </div>
           </Card>
         </div>
-      )}
+      ) : null}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <Card>

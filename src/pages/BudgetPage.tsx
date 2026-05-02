@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Archive, Edit3, Plus, Save, X } from "lucide-react";
 import { Button } from "../components/Button";
@@ -165,6 +165,26 @@ function amountDetail(item: BudgetItem) {
   return `${currency(Number(item.amount))} ${labelForFrequency(item.frequency).toLowerCase()}${quantityText}`;
 }
 
+function typeLabel(type: BudgetItemType, scope: BudgetItemScope) {
+  if (type === "income") return "income";
+  if (type === "debt") return "debt repayment";
+  if (type === "saving" || type === "buffer") return "savings goal";
+  if (scope === "shared") return "shared expense";
+  if (type === "fixed") return "bill";
+  return "budget item";
+}
+
+function amountSummary(form: BudgetFormState, amount: number | null, quantity: number) {
+  if (form.needsAmount || amount === null) return "needs amount";
+  const monthlyAmount = monthlyAmountForBudgetItem({
+    amount,
+    frequency: form.frequency,
+    quantity,
+    needs_amount: false,
+  });
+  return monthlyAmount === null ? labelForFrequency(form.frequency).toLowerCase() : `${currency(monthlyAmount)}/month`;
+}
+
 function formFromItem(item: BudgetItem): BudgetFormState {
   return {
     itemName: item.item_name,
@@ -246,11 +266,7 @@ export function BudgetPage() {
     [memberOptions],
   );
 
-  useEffect(() => {
-    const addType = searchParams.get("add");
-    if (!addType || showForm) return;
-    const choice = ADD_CHOICES.find((item) => item.id === addType);
-    if (!choice) return;
+  const openAddChoice = useCallback((choice: AddChoice) => {
     setEditingId(null);
     setForm({
       ...EMPTY_FORM,
@@ -264,8 +280,16 @@ export function BudgetPage() {
     setFormStep(3);
     setError(null);
     setShowForm(true);
+  }, [defaultMemberId, monthStart]);
+
+  useEffect(() => {
+    const addType = searchParams.get("add");
+    if (!addType || showForm) return;
+    const choice = ADD_CHOICES.find((item) => item.id === addType);
+    if (!choice) return;
+    openAddChoice(choice);
     setSearchParams({}, { replace: true });
-  }, [defaultMemberId, monthStart, searchParams, setSearchParams, showForm]);
+  }, [openAddChoice, searchParams, setSearchParams, showForm]);
   const hasBudgetItems = activeItems.length > 0;
   const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
   const legacyIncome = Number(budgetMonth?.total_income ?? 0);
@@ -273,6 +297,7 @@ export function BudgetPage() {
   const actualSpent = totalSpent(expenses);
   const monthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyIncome;
   const showingLegacyBudget = !activeItems.length && (legacyIncome > 0 || legacyPlannedExpenses > 0);
+  const hasBudgetData = hasBudgetItems;
   const budgetItemsLoadWarning = dataWarnings.find((warning) =>
     warning.includes("Budget items could not load. Your expenses and household data are still safe."),
   );
@@ -316,6 +341,22 @@ export function BudgetPage() {
   const debtRepaymentsTotal = debtItems.reduce((sum, item) => sum + monthlyValue(item), 0);
   const savingsGoalTotal = savingsItems.reduce((sum, item) => sum + monthlyValue(item), 0);
   const expectedRemaining = monthlyIncome - personalBillsTotal - sharedExpensesTotal - debtRepaymentsTotal - savingsGoalTotal;
+  const plannedOutflowTotal = personalBillsTotal + sharedExpensesTotal + debtRepaymentsTotal + savingsGoalTotal;
+  const budgetSummaryCards = [
+    { label: "Household monthly income", value: monthlyIncome, show: monthlyIncome > 0 },
+    { label: "Personal bills total", value: personalBillsTotal, show: personalBillsTotal > 0 },
+    { label: "Shared expenses total", value: sharedExpensesTotal, show: sharedExpensesTotal > 0 },
+    { label: "Savings goal", value: savingsGoalTotal, show: savingsGoalTotal > 0 },
+    { label: "Expected remaining", value: expectedRemaining, show: monthlyIncome > 0 || plannedOutflowTotal > 0 },
+    { label: "Actual spent this month", value: actualSpent, show: actualSpent > 0 },
+  ].filter((item) => item.show);
+  const moneyEquationRows = [
+    { label: "Income", value: monthlyIncome, prefix: "", show: monthlyIncome > 0 },
+    { label: "minus personal bills", value: personalBillsTotal, prefix: "-", show: personalBillsTotal > 0 },
+    { label: "minus shared expenses", value: sharedExpensesTotal, prefix: "-", show: sharedExpensesTotal > 0 },
+    { label: "minus debt repayments", value: debtRepaymentsTotal, prefix: "-", show: debtRepaymentsTotal > 0 },
+    { label: "minus savings goal", value: savingsGoalTotal, prefix: "-", show: savingsGoalTotal > 0 },
+  ].filter((item) => item.show);
 
   const formMonthlyEquivalent = useMemo(() => {
     if (form.needsAmount || form.amount.trim() === "") return "Needs amount";
@@ -448,7 +489,8 @@ export function BudgetPage() {
         },
         editingId ?? undefined,
       );
-      setToast(editingId ? "Budget item updated." : "Budget item added.");
+      const action = editingId ? "Updated" : "Added";
+      setToast(`${action} ${typeLabel(form.type, form.scope)}: ${itemName} (${amountSummary(form, parsedAmount, parsedQuantity)}).`);
       cancelForm();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save budget item.");
@@ -520,6 +562,7 @@ export function BudgetPage() {
     { title: "Savings and buffer", items: savingsItems, empty: "No savings or buffer items yet." },
     { title: "Needs amount", items: needsAmountItems, empty: "No items need an amount." },
   ];
+  const visiblePlanSections = planSections.filter((section) => section.items.length > 0);
 
   return (
     <div className="pb-24 md:pb-0">
@@ -573,27 +616,35 @@ export function BudgetPage() {
               Add item
             </Button>
           </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {ADD_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                className="rounded-xl border border-sage bg-mist px-3 py-3 text-left text-sm font-semibold text-ink hover:border-moss hover:bg-sage/60"
+                onClick={() => openAddChoice(choice)}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
         </Card>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {[
-          ["Household monthly income", monthlyIncome],
-          ["Personal bills total", personalBillsTotal],
-          ["Shared expenses total", sharedExpensesTotal],
-          ["Savings goal", savingsGoalTotal],
-          ["Expected remaining", expectedRemaining],
-          ["Actual spent this month", actualSpent],
-        ].map(([label, value]) => (
-          <Card key={label} className="p-4">
-            <p className="text-sm font-medium text-ink/60">{label}</p>
-            <p className={`mt-2 text-2xl font-bold tracking-normal ${label === "Expected remaining" && Number(value) < 0 ? "text-coral" : "text-ink"}`}>
-              {currency(Number(value))}
-            </p>
-          </Card>
-        ))}
-      </div>
+      {hasBudgetData && budgetSummaryCards.length ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {budgetSummaryCards.map(({ label, value }) => (
+            <Card key={label} className="p-4">
+              <p className="text-sm font-medium text-ink/60">{label}</p>
+              <p className={`mt-2 text-2xl font-bold tracking-normal ${label === "Expected remaining" && Number(value) < 0 ? "text-coral" : "text-ink"}`}>
+                {currency(Number(value))}
+              </p>
+            </Card>
+          ))}
+        </div>
+      ) : null}
 
+      {hasBudgetData && moneyEquationRows.length ? (
       <Card className="mt-5">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -603,13 +654,7 @@ export function BudgetPage() {
           <p className={`text-xl font-bold ${expectedRemaining < 0 ? "text-coral" : "text-ink"}`}>{currency(expectedRemaining)}</p>
         </div>
         <div className="mt-4 space-y-3 text-sm">
-          {[
-            ["Income", monthlyIncome, ""],
-            ["minus personal bills", personalBillsTotal, "-"],
-            ["minus shared expenses", sharedExpensesTotal, "-"],
-            ["minus debt repayments", debtRepaymentsTotal, "-"],
-            ["minus savings goal", savingsGoalTotal, "-"],
-          ].map(([label, value, prefix]) => (
+          {moneyEquationRows.map(({ label, value, prefix }) => (
             <div key={label} className="flex justify-between gap-4 rounded-xl bg-mist px-3 py-2">
               <span className="text-ink/65">{label}</span>
               <span className="font-bold text-ink">
@@ -623,9 +668,11 @@ export function BudgetPage() {
           </div>
         </div>
       </Card>
+      ) : null}
 
+      {visiblePlanSections.length ? (
       <section className="mt-5 space-y-4">
-        {planSections.map((section) => (
+        {visiblePlanSections.map((section) => (
           <Card key={section.title}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -643,6 +690,7 @@ export function BudgetPage() {
           </Card>
         ))}
       </section>
+      ) : null}
 
       <div className="fixed bottom-20 left-4 right-4 z-20 md:hidden">
         <Button className="w-full shadow-soft" onClick={() => openForm()}>
