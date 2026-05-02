@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Archive, Edit3, Lightbulb, Plus, Save, X } from "lucide-react";
+import { Archive, Edit3, Plus, Save, X } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
-import { EmptyState } from "../components/EmptyState";
 import { FormField } from "../components/FormField";
 import { inputClass } from "../components/inputs";
 import { MonthSelector } from "../components/MonthSelector";
@@ -17,7 +16,6 @@ import {
   monthlyAmountForBudgetItem,
   totalBudget,
   totalBudgetItemMonthlyIncome,
-  totalBudgetItemMonthlyPlannedExpenses,
   totalSpent,
 } from "../lib/budget";
 import { formatMonthLabel } from "../lib/date";
@@ -40,7 +38,6 @@ type BudgetFormState = {
   isActive: boolean;
 };
 
-type BudgetGroupKey = "income" | "fixed" | "debt" | "variable" | "saving" | "needs_amount";
 type BudgetTemplate = Pick<BudgetFormState, "itemName" | "category" | "type" | "frequency"> & {
   needsAmount?: boolean;
 };
@@ -94,6 +91,7 @@ const CATEGORY_OPTIONS = [
   "Pets",
   "Travel",
   "Gifts",
+  "Clothes",
   "Dining out",
   "Savings",
   "Buffer",
@@ -101,55 +99,43 @@ const CATEGORY_OPTIONS = [
 ];
 
 const ITEM_NAME_OPTIONS = [
-  "Income",
-  "Mortgage / Rent",
+  "Salary",
+  "Mortgage / rent",
   "Car loan",
   "Credit card",
+  "Mobile bill",
+  "Gym",
+  "Rego",
+  "Insurance",
   "Groceries",
   "Utilities",
   "Petrol",
-  "Insurance",
-  "Phone",
+  "Dining out",
+  "Gifts",
+  "Clothes",
   "Custom item",
 ];
 
 const COMMON_TEMPLATES: BudgetTemplate[] = [
-  { itemName: "Income", category: "Income", type: "income", frequency: "monthly" },
-  { itemName: "Mortgage / Rent", category: "Housing", type: "fixed", frequency: "monthly" },
+  { itemName: "Salary", category: "Income", type: "income", frequency: "monthly" },
+  { itemName: "Mortgage / rent", category: "Housing", type: "fixed", frequency: "monthly" },
   { itemName: "Car loan", category: "Debt", type: "debt", frequency: "monthly" },
   { itemName: "Credit card", category: "Debt", type: "debt", frequency: "unknown", needsAmount: true },
+  { itemName: "Mobile bill", category: "Phone", type: "fixed", frequency: "monthly" },
+  { itemName: "Gym", category: "Health", type: "fixed", frequency: "monthly" },
+  { itemName: "Rego", category: "Transport", type: "fixed", frequency: "yearly" },
+  { itemName: "Insurance", category: "Insurance", type: "fixed", frequency: "monthly" },
   { itemName: "Groceries", category: "Food", type: "variable", frequency: "monthly" },
   { itemName: "Utilities", category: "Utilities", type: "fixed", frequency: "monthly" },
   { itemName: "Petrol", category: "Transport", type: "variable", frequency: "weekly" },
-  { itemName: "Insurance", category: "Insurance", type: "fixed", frequency: "monthly" },
-  { itemName: "Phone", category: "Phone", type: "fixed", frequency: "monthly" },
+  { itemName: "Dining out", category: "Dining out", type: "variable", frequency: "monthly" },
+  { itemName: "Gifts", category: "Gifts", type: "variable", frequency: "monthly" },
+  { itemName: "Clothes", category: "Clothes", type: "variable", frequency: "monthly" },
   { itemName: "Custom item", category: "Other", type: "variable", frequency: "monthly" },
 ];
 
-const GROUPS: Array<{ key: BudgetGroupKey; label: string; simpleLabel: string; description: string }> = [
-  { key: "income", label: "Income", simpleLabel: "Money coming in", description: "Wages, benefits, side income, or other money expected this month." },
-  { key: "fixed", label: "Fixed bills", simpleLabel: "Bills and commitments", description: "Regular payments that usually stay steady." },
-  { key: "debt", label: "Debt payments", simpleLabel: "Debt payments", description: "Loans, credit cards, and repayments." },
-  { key: "variable", label: "Flexible spending", simpleLabel: "Flexible spending", description: "Food, fuel, outings, and other spending that can move." },
-  { key: "saving", label: "Savings / buffer", simpleLabel: "Savings and buffer", description: "Money set aside for goals, emergencies, and breathing room." },
-  { key: "needs_amount", label: "Needs amount", simpleLabel: "Needs amount", description: "Items still visible but not counted until an amount is added." },
-];
-
-function labelForType(type: BudgetItemType) {
-  return TYPE_OPTIONS.find((item) => item.value === type)?.label ?? type;
-}
-
 function labelForFrequency(frequency: BudgetFrequency) {
   return FREQUENCY_OPTIONS.find((item) => item.value === frequency)?.label ?? frequency;
-}
-
-function groupForItem(item: BudgetItem): BudgetGroupKey {
-  if (item.is_active && budgetItemNeedsAmount(item)) return "needs_amount";
-  if (item.type === "income") return "income";
-  if (item.type === "debt") return "debt";
-  if (item.type === "variable") return "variable";
-  if (item.type === "saving" || item.type === "buffer") return "saving";
-  return "fixed";
 }
 
 function monthlyValue(item: BudgetItem) {
@@ -163,13 +149,6 @@ function monthlyLabel(item: BudgetItem) {
   const monthlyAmount = monthlyAmountForBudgetItem(item);
   if (monthlyAmount === null || item.type === "info") return "Not counted";
   return `${currency(monthlyAmount)}/month`;
-}
-
-function countedLabel(item: BudgetItem) {
-  if (!item.is_active) return "Not counted - inactive";
-  if (item.type === "info") return "Not counted - info only";
-  if (budgetItemNeedsAmount(item)) return "Not counted - needs amount";
-  return "Counted in household totals";
 }
 
 function amountDetail(item: BudgetItem) {
@@ -196,10 +175,6 @@ function formFromItem(item: BudgetItem): BudgetFormState {
   };
 }
 
-function normalizeKey(value: string) {
-  return value.trim().toLowerCase();
-}
-
 function templateForm(template: BudgetTemplate, monthStart: string): BudgetFormState {
   return {
     ...EMPTY_FORM,
@@ -209,7 +184,7 @@ function templateForm(template: BudgetTemplate, monthStart: string): BudgetFormS
     frequency: template.frequency,
     amount: "",
     startDate: monthStart,
-    scope: template.category === "Food" || template.category === "Utilities" || template.itemName === "Mortgage / Rent" ? "shared" : "personal",
+    scope: ["Food", "Utilities", "Dining out", "Gifts", "Clothes"].includes(template.category) || template.itemName === "Mortgage / rent" ? "shared" : "personal",
     needsAmount: Boolean(template.needsAmount),
   };
 }
@@ -250,142 +225,54 @@ export function BudgetPage() {
   );
   const hasBudgetItems = activeItems.length > 0;
   const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
-  const itemPlannedExpenses = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(activeItems), [activeItems]);
   const legacyIncome = Number(budgetMonth?.total_income ?? 0);
   const legacyPlannedExpenses = totalBudget(budgetMonth, budgetLimits);
-  const monthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyIncome;
-  const plannedExpenses = itemPlannedExpenses > 0 ? itemPlannedExpenses : legacyPlannedExpenses;
   const actualSpent = totalSpent(expenses);
-  const remaining = monthlyIncome - plannedExpenses;
-  const needsAmountItems = activeItems.filter((item) => item.is_active && budgetItemNeedsAmount(item));
-  const needsAmountCount = needsAmountItems.length;
+  const monthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyIncome;
   const showingLegacyBudget = !activeItems.length && (legacyIncome > 0 || legacyPlannedExpenses > 0);
   const budgetItemsLoadWarning = dataWarnings.find((warning) =>
     warning.includes("Budget items could not load. Your expenses and household data are still safe."),
   );
 
-  const groupedItems = useMemo(() => {
-    return activeItems.reduce<Record<BudgetGroupKey, BudgetItem[]>>(
-      (groups, item) => {
-        groups[groupForItem(item)].push(item);
-        return groups;
-      },
-      { income: [], fixed: [], debt: [], variable: [], saving: [], needs_amount: [] },
-    );
-  }, [activeItems]);
-
-  const itemsByScope = useMemo(
-    () => ({
-      personal: activeItems.filter((item) => item.scope === "personal"),
-      shared: activeItems.filter((item) => item.scope === "shared"),
-    }),
+  const incomeItems = useMemo(() => activeItems.filter((item) => item.type === "income" && !budgetItemNeedsAmount(item)), [activeItems]);
+  const personalBillItems = useMemo(
+    () =>
+      activeItems.filter(
+        (item) =>
+          item.scope === "personal" &&
+          !budgetItemNeedsAmount(item) &&
+          item.type !== "income" &&
+          item.type !== "debt" &&
+          item.type !== "saving" &&
+          item.type !== "buffer",
+      ),
     [activeItems],
   );
+  const sharedExpenseItems = useMemo(
+    () =>
+      activeItems.filter(
+        (item) =>
+          item.scope === "shared" &&
+          !budgetItemNeedsAmount(item) &&
+          item.type !== "income" &&
+          item.type !== "debt" &&
+          item.type !== "saving" &&
+          item.type !== "buffer",
+      ),
+    [activeItems],
+  );
+  const debtItems = useMemo(() => activeItems.filter((item) => item.type === "debt" && !budgetItemNeedsAmount(item)), [activeItems]);
+  const savingsItems = useMemo(
+    () => activeItems.filter((item) => (item.type === "saving" || item.type === "buffer") && !budgetItemNeedsAmount(item)),
+    [activeItems],
+  );
+  const needsAmountItems = useMemo(() => activeItems.filter((item) => item.is_active && budgetItemNeedsAmount(item)), [activeItems]);
 
-  const sectionTotals = useMemo(() => {
-    return GROUPS.reduce<Record<BudgetGroupKey, number>>(
-      (totals, group) => {
-        totals[group.key] = groupedItems[group.key].reduce((sum, item) => sum + monthlyValue(item), 0);
-        return totals;
-      },
-      { income: 0, fixed: 0, debt: 0, variable: 0, saving: 0, needs_amount: 0 },
-    );
-  }, [groupedItems]);
-
-  const actualByCategory = useMemo(() => {
-    return expenses.reduce<Map<string, { label: string; actual: number }>>((map, expense) => {
-      const label = expense.category?.name ?? "Other";
-      const key = normalizeKey(label);
-      const current = map.get(key) ?? { label, actual: 0 };
-      current.actual += Number(expense.amount);
-      map.set(key, current);
-      return map;
-    }, new Map());
-  }, [expenses]);
-
-  const comparisonRows = useMemo(() => {
-    const planned = new Map<string, { category: string; planned: number; type: BudgetItemType | "unplanned" }>();
-
-    activeItems.forEach((item) => {
-      if (!item.is_active || item.archived_at || budgetItemNeedsAmount(item) || item.type === "income" || item.type === "info") return;
-      const amount = monthlyAmountForBudgetItem(item);
-      if (amount === null) return;
-      const key = normalizeKey(item.category);
-      const current = planned.get(key) ?? { category: item.category, planned: 0, type: item.type };
-      current.planned += amount;
-      if (current.type !== "variable" && item.type === "variable") current.type = "variable";
-      planned.set(key, current);
-    });
-
-    actualByCategory.forEach((actualRow, key) => {
-      if (!planned.has(key)) {
-        planned.set(key, { category: actualRow.label, planned: 0, type: "unplanned" });
-      }
-    });
-
-    return Array.from(planned.entries())
-      .map(([key, row]) => {
-        const actual = actualByCategory.get(key)?.actual ?? 0;
-        return {
-          category: row.category,
-          planned: row.planned,
-          actual,
-          difference: row.planned - actual,
-          type: row.type,
-        };
-      })
-      .filter((row) => row.planned > 0 || row.actual > 0)
-      .sort((first, second) => Math.abs(second.difference) - Math.abs(first.difference));
-  }, [activeItems, actualByCategory]);
-
-  const plannedFlexible = sectionTotals.variable;
-  const actualFlexible = comparisonRows
-    .filter((row) => row.type === "variable" || row.type === "unplanned")
-    .reduce((sum, row) => sum + row.actual, 0);
-  const flexibleDifference = plannedFlexible - actualFlexible;
-  const potentialSaving = plannedFlexible > 0 ? Math.max(0, flexibleDifference) : Math.max(0, remaining);
-
-  const healthInsight = useMemo(() => {
-    if (!hasBudgetItems) return "Add your income first, then add regular bills and spending.";
-    if (needsAmountCount > 0) return "Some items need an amount before this plan is complete.";
-    if (monthlyIncome <= 0) return "Add income so MoneyMates can calculate what is left.";
-    if (sectionTotals.fixed + sectionTotals.debt > monthlyIncome * 0.6) return "Fixed payments are taking most of the income.";
-    if (plannedFlexible > 0 && actualFlexible > plannedFlexible) return "Flexible spending is the best place to adjust.";
-    if (remaining > 0) return "You have room to save this month.";
-    return "This plan is tight, so small flexible spending changes may help.";
-  }, [actualFlexible, hasBudgetItems, monthlyIncome, needsAmountCount, plannedFlexible, remaining, sectionTotals.debt, sectionTotals.fixed]);
-
-  const adjustmentOpportunities = useMemo(() => {
-    const opportunities: string[] = [];
-    const firstMissing = needsAmountItems[0];
-    if (firstMissing) {
-      opportunities.push(`${firstMissing.item_name} still needs an amount. Add it to complete the plan.`);
-    }
-
-    const overPlan = comparisonRows.find((row) => row.planned > 0 && row.actual > row.planned);
-    if (overPlan) {
-      opportunities.push(
-        `${overPlan.category} is planned at ${currency(overPlan.planned)}/month. Actual spending is ${currency(overPlan.actual)}. Consider lowering this week's spend if that feels realistic.`,
-      );
-    }
-
-    const closeToPlan = comparisonRows.find((row) => row.planned > 0 && row.actual <= row.planned && row.actual / row.planned >= 0.8);
-    if (closeToPlan) {
-      opportunities.push(`${closeToPlan.category} is tracking close to plan.`);
-    }
-
-    if (plannedFlexible > 0 && actualFlexible > plannedFlexible) {
-      opportunities.push("You may be able to save more by adjusting flexible categories.");
-    } else if (remaining > 0 && needsAmountCount === 0) {
-      opportunities.push("You have room to save this month.");
-    }
-
-    if (!opportunities.length) {
-      opportunities.push("Add a few planned items and MoneyMates will suggest calm places to adjust.");
-    }
-
-    return opportunities.slice(0, 4);
-  }, [actualFlexible, comparisonRows, needsAmountCount, needsAmountItems, plannedFlexible, remaining]);
+  const personalBillsTotal = personalBillItems.reduce((sum, item) => sum + monthlyValue(item), 0);
+  const sharedExpensesTotal = sharedExpenseItems.reduce((sum, item) => sum + monthlyValue(item), 0);
+  const debtRepaymentsTotal = debtItems.reduce((sum, item) => sum + monthlyValue(item), 0);
+  const savingsGoalTotal = savingsItems.reduce((sum, item) => sum + monthlyValue(item), 0);
+  const expectedRemaining = monthlyIncome - personalBillsTotal - sharedExpensesTotal - debtRepaymentsTotal - savingsGoalTotal;
 
   const formMonthlyEquivalent = useMemo(() => {
     if (form.needsAmount || form.amount.trim() === "") return "Needs amount";
@@ -428,7 +315,7 @@ export function BudgetPage() {
       type: template.type,
       frequency: template.frequency,
       amount: "",
-      scope: template.category === "Food" || template.category === "Utilities" || template.itemName === "Mortgage / Rent" ? "shared" : current.scope,
+      scope: ["Food", "Utilities", "Dining out", "Gifts", "Clothes"].includes(template.category) || template.itemName === "Mortgage / rent" ? "shared" : current.scope,
       needsAmount: Boolean(template.needsAmount),
     }));
   };
@@ -515,8 +402,54 @@ export function BudgetPage() {
     }
   };
 
-  const billTemplate = COMMON_TEMPLATES.find((item) => item.itemName === "Mortgage / Rent");
-  const spendingTemplate = COMMON_TEMPLATES.find((item) => item.itemName === "Groceries");
+  const renderBudgetItemCard = (item: BudgetItem) => (
+    <div key={item.id} className={`rounded-xl border border-sage bg-mist px-3 py-3 ${item.is_active ? "" : "opacity-65"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-ink">{item.item_name}</p>
+            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink/70">
+              {item.scope === "shared" ? "Shared" : "Personal"}
+            </span>
+            {!item.is_active ? <span className="rounded-full bg-coral/15 px-2 py-0.5 text-xs font-semibold text-coral">Inactive</span> : null}
+          </div>
+          <p className="mt-1 text-sm text-ink/60">{memberNames.get(item.owner_user_id) ?? "Household member"}</p>
+          <p className="mt-2 text-sm font-medium text-ink">
+            {amountDetail(item)} <span className="font-normal text-ink/55">- {monthlyLabel(item)}</span>
+          </p>
+          {item.notes ? <p className="mt-2 line-clamp-2 rounded-xl bg-white px-3 py-2 text-sm leading-6 text-ink/70">{item.notes}</p> : null}
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            className="rounded-xl border border-sage bg-white p-2 text-ink/70 hover:border-moss"
+            aria-label={`Edit ${item.item_name}`}
+            onClick={() => startEdit(item)}
+          >
+            <Edit3 className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-coral/30 bg-white p-2 text-coral hover:bg-coral/10 disabled:opacity-50"
+            aria-label={`Archive ${item.item_name}`}
+            disabled={archivingId === item.id}
+            onClick={() => void handleArchive(item)}
+          >
+            <Archive className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const planSections = [
+    { title: "Income by member", items: incomeItems, empty: "No income items yet." },
+    { title: "Personal bills and direct debits", items: personalBillItems, empty: "No personal bills or direct debits yet." },
+    { title: "Shared household expenses", items: sharedExpenseItems, empty: "No shared household expenses yet." },
+    { title: "Debt repayments", items: debtItems, empty: "No debt repayments yet." },
+    { title: "Savings and buffer", items: savingsItems, empty: "No savings or buffer items yet." },
+    { title: "Needs amount", items: needsAmountItems, empty: "No items need an amount." },
+  ];
 
   return (
     <div className="pb-24 md:pb-0">
@@ -524,7 +457,7 @@ export function BudgetPage() {
       <PageHeader
         eyebrow={formatMonthLabel(monthStart)}
         title="Monthly money plan"
-        description="Plan your income, bills, spending, and savings for this month."
+        description="Add income, bills, spending, and savings so MoneyMates can show what is left and where you can adjust."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <MonthSelector />
@@ -553,306 +486,92 @@ export function BudgetPage() {
         <Card className="mb-5">
           <p className="text-sm font-semibold text-moss">Existing monthly budget loaded</p>
           <p className="mt-2 text-sm leading-6 text-ink/65">
-            This household has legacy budget data in budget months and category limits. It is still counted below; new manual items are saved separately.
+            This household still has legacy monthly totals. Add budget items to move the plan into member-owned income, bills, expenses, debts, and savings.
           </p>
         </Card>
       ) : null}
 
       {!hasBudgetItems ? (
         <Card className="mb-5">
-          <EmptyState
-            title="Start your monthly plan"
-            message="Add your income first, then add your regular bills and spending. MoneyMates will calculate what is left."
-            action={
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Button onClick={() => openForm(COMMON_TEMPLATES[0])}>Add income</Button>
-                <Button variant="secondary" onClick={() => openForm(billTemplate)}>
-                  Add bill
-                </Button>
-                <Button variant="secondary" onClick={() => openForm(spendingTemplate)}>
-                  Add spending item
-                </Button>
-              </div>
-            }
-          />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-moss">Start your monthly plan</p>
+              <p className="mt-1 text-sm leading-6 text-ink/65">Add income first, then bills, shared expenses, debt repayments, and savings goals.</p>
+            </div>
+            <Button className="w-full sm:w-auto" onClick={() => openForm()}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add item
+            </Button>
+          </div>
         </Card>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="p-4">
-          <p className="text-sm font-medium text-ink/60">Monthly income</p>
-          <p className="mt-2 text-2xl font-bold tracking-normal text-ink">{currency(monthlyIncome)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm font-medium text-ink/60">Planned expenses</p>
-          <p className="mt-2 text-2xl font-bold tracking-normal text-ink">{currency(plannedExpenses)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm font-medium text-ink/60">Expected remaining</p>
-          <p className={`mt-2 text-2xl font-bold tracking-normal ${remaining < 0 ? "text-coral" : "text-ink"}`}>{currency(remaining)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm font-medium text-ink/60">Actual spent this month</p>
-          <p className="mt-2 text-2xl font-bold tracking-normal text-ink">{currency(actualSpent)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm font-medium text-ink/60">Potential saving</p>
-          <p className="mt-2 text-2xl font-bold tracking-normal text-moss">{currency(potentialSaving)}</p>
-        </Card>
-      </div>
-
-      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_0.9fr]">
-        <Card>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-moss">Simple money equation</p>
-              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Left after plan</h2>
-            </div>
-            <p className={`text-xl font-bold ${remaining < 0 ? "text-coral" : "text-ink"}`}>{currency(remaining)}</p>
-          </div>
-          <div className="mt-4 space-y-3 text-sm">
-            <div className="flex justify-between gap-4">
-              <span className="text-ink/65">Money coming in</span>
-              <span className="font-bold text-ink">{currency(monthlyIncome)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-ink/65">minus Bills and commitments</span>
-              <span className="font-bold text-ink">- {currency(sectionTotals.fixed)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-ink/65">minus Debt payments</span>
-              <span className="font-bold text-ink">- {currency(sectionTotals.debt)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-ink/65">minus Flexible spending</span>
-              <span className="font-bold text-ink">- {currency(sectionTotals.variable)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-ink/65">minus Savings and buffer</span>
-              <span className="font-bold text-ink">- {currency(sectionTotals.saving)}</span>
-            </div>
-            <div className="border-t border-sage pt-3 flex justify-between gap-4">
-              <span className="font-semibold text-ink">Left after plan</span>
-              <span className={`font-bold ${remaining < 0 ? "text-coral" : "text-ink"}`}>{currency(remaining)}</span>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-sage p-2 text-navy">
-              <Lightbulb className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-moss">Budget health</p>
-              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">{healthInsight}</h2>
-            </div>
-          </div>
-          <div className="mt-4 rounded-xl bg-mist px-3 py-3 text-sm text-ink/70">
-            Planned flexible spending: <span className="font-semibold text-ink">{currency(plannedFlexible)}</span>
-            <br />
-            Actual flexible spending: <span className="font-semibold text-ink">{currency(actualFlexible)}</span>
-            <br />
-            Difference: <span className={`font-semibold ${flexibleDifference < 0 ? "text-coral" : "text-moss"}`}>{currency(flexibleDifference)}</span>
-          </div>
-        </Card>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {[
+          ["Household monthly income", monthlyIncome],
+          ["Personal bills total", personalBillsTotal],
+          ["Shared expenses total", sharedExpensesTotal],
+          ["Savings goal", savingsGoalTotal],
+          ["Expected remaining", expectedRemaining],
+          ["Actual spent this month", actualSpent],
+        ].map(([label, value]) => (
+          <Card key={label} className="p-4">
+            <p className="text-sm font-medium text-ink/60">{label}</p>
+            <p className={`mt-2 text-2xl font-bold tracking-normal ${label === "Expected remaining" && Number(value) < 0 ? "text-coral" : "text-ink"}`}>
+              {currency(Number(value))}
+            </p>
+          </Card>
+        ))}
       </div>
 
       <Card className="mt-5">
-        <h2 className="text-xl font-bold tracking-normal text-ink">Adjustment opportunities</h2>
-        <div className="mt-3 grid gap-2">
-          {adjustmentOpportunities.map((item) => (
-            <p key={item} className="rounded-xl bg-mist px-3 py-2 text-sm leading-6 text-ink/70">
-              {item}
-            </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-moss">Money equation</p>
+            <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Expected remaining</h2>
+          </div>
+          <p className={`text-xl font-bold ${expectedRemaining < 0 ? "text-coral" : "text-ink"}`}>{currency(expectedRemaining)}</p>
+        </div>
+        <div className="mt-4 space-y-3 text-sm">
+          {[
+            ["Income", monthlyIncome, ""],
+            ["minus personal bills", personalBillsTotal, "-"],
+            ["minus shared expenses", sharedExpensesTotal, "-"],
+            ["minus debt repayments", debtRepaymentsTotal, "-"],
+            ["minus savings goal", savingsGoalTotal, "-"],
+          ].map(([label, value, prefix]) => (
+            <div key={label} className="flex justify-between gap-4 rounded-xl bg-mist px-3 py-2">
+              <span className="text-ink/65">{label}</span>
+              <span className="font-bold text-ink">
+                {prefix} {currency(Number(value))}
+              </span>
+            </div>
           ))}
+          <div className="flex justify-between gap-4 border-t border-sage pt-3">
+            <span className="font-semibold text-ink">equals expected remaining</span>
+            <span className={`font-bold ${expectedRemaining < 0 ? "text-coral" : "text-ink"}`}>{currency(expectedRemaining)}</span>
+          </div>
         </div>
       </Card>
 
-      {comparisonRows.length ? (
-        <Card className="mt-5">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-xl font-bold tracking-normal text-ink">Planned vs actual</h2>
-              <p className="text-sm text-ink/60">Based on planned item categories and this month's expenses.</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {comparisonRows.slice(0, 8).map((row) => (
-              <div key={row.category} className="rounded-xl border border-sage bg-white px-3 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">{row.category}</p>
-                    <p className="text-xs text-ink/60">
-                      Planned {currency(row.planned)} - Actual {currency(row.actual)}
-                    </p>
-                  </div>
-                  <p className={`text-sm font-bold ${row.difference < 0 ? "text-coral" : "text-moss"}`}>
-                    {row.difference < 0 ? "Over" : "Under"} {currency(Math.abs(row.difference))}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      ) : null}
-
-      <section className="mt-5">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold tracking-normal text-ink">Personal and shared items</h2>
-            <p className="text-sm text-ink/60">Ownership, payer, monthly equivalent, and counted status for the household plan.</p>
-          </div>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {[
-            {
-              key: "personal" as const,
-              title: "Personal items",
-              description: "Income, bills, debts, goals, and expenses that mainly belong to one member.",
-              items: itemsByScope.personal,
-            },
-            {
-              key: "shared" as const,
-              title: "Shared items",
-              description: "Household expenses and goals shared by the household.",
-              items: itemsByScope.shared,
-            },
-          ].map((section) => (
-            <Card key={section.key}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-moss">{section.key === "personal" ? "Personal" : "Shared"}</p>
-                  <h3 className="mt-1 text-xl font-bold tracking-normal text-ink">{section.title}</h3>
-                  <p className="mt-1 text-sm leading-6 text-ink/60">{section.description}</p>
-                </div>
-                <p className="text-sm font-bold text-ink">
+      <section className="mt-5 space-y-4">
+        {planSections.map((section) => (
+          <Card key={section.title}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold tracking-normal text-ink">{section.title}</h2>
+                <p className="mt-1 text-sm text-ink/60">
                   {section.items.length} item{section.items.length === 1 ? "" : "s"}
                 </p>
               </div>
-              <div className="mt-4 grid gap-3">
-                {section.items.length ? (
-                  section.items.slice(0, 8).map((item) => (
-                    <div key={item.id} className="rounded-xl border border-sage bg-mist px-3 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-ink">{item.item_name}</p>
-                          <p className="mt-1 text-sm text-ink/60">
-                            {item.category} - {monthlyLabel(item)}
-                          </p>
-                          <div className="mt-2 grid gap-1 text-xs font-medium text-ink/55">
-                            <span>Owner: {memberNames.get(item.owner_user_id) ?? "Household member"}</span>
-                            <span>Usually paid by: {item.payer_user_id ? memberNames.get(item.payer_user_id) ?? "Household member" : "Not set"}</span>
-                            <span>Added by: {memberNames.get(item.created_by) ?? "Household member"}</span>
-                            <span>{countedLabel(item)}</span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-xl border border-sage bg-white p-2 text-ink/70 hover:border-moss"
-                          aria-label={`Edit ${item.item_name}`}
-                          onClick={() => startEdit(item)}
-                        >
-                          <Edit3 className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed border-sage bg-mist px-3 py-4 text-sm text-ink/60">
-                    No {section.key} budget items yet.
-                  </p>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-5">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold tracking-normal text-ink">Monthly plan by type</h2>
-            <p className="text-sm text-ink/60">Income, bills, spending, savings, and items that still need an amount.</p>
-          </div>
-          <p className="text-sm font-semibold text-moss">
-            {activeItems.length} item{activeItems.length === 1 ? "" : "s"}
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {GROUPS.map((group) => {
-            const items = groupedItems[group.key];
-            const total = sectionTotals[group.key];
-            return (
-              <Card key={group.key}>
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-moss">{group.simpleLabel}</p>
-                    <h3 className="mt-1 text-xl font-bold tracking-normal text-ink">{group.label}</h3>
-                    <p className="mt-1 text-sm text-ink/60">{group.description}</p>
-                  </div>
-                  <p className="text-lg font-bold text-ink">{group.key === "needs_amount" ? `${items.length} item${items.length === 1 ? "" : "s"}` : currency(total)}</p>
-                </div>
-
-                {items.length ? (
-                  <div className="mt-4 grid gap-3">
-                    {items.map((item) => (
-                      <div key={item.id} className={`rounded-xl border border-sage bg-mist px-3 py-3 ${item.is_active ? "" : "opacity-65"}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-semibold text-ink">{item.item_name}</p>
-                              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink/70">
-                                {item.scope === "shared" ? "Shared" : "Personal"}
-                              </span>
-                              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink/70">{labelForType(item.type)}</span>
-                              {!item.is_active ? <span className="rounded-full bg-coral/15 px-2 py-0.5 text-xs font-semibold text-coral">Inactive</span> : null}
-                            </div>
-                            <p className="mt-1 text-sm text-ink/60">
-                              {item.category} - {amountDetail(item)}
-                            </p>
-                            <div className="mt-2 grid gap-1 text-xs font-medium text-ink/55 sm:grid-cols-2">
-                              <span>Owner: {memberNames.get(item.owner_user_id) ?? "Household member"}</span>
-                              <span>Usually paid by: {item.payer_user_id ? memberNames.get(item.payer_user_id) ?? "Household member" : "Not set"}</span>
-                              <span>Added by: {memberNames.get(item.created_by) ?? "Household member"}</span>
-                              <span>{countedLabel(item)}</span>
-                            </div>
-                            {item.notes ? <p className="mt-2 rounded-xl bg-white px-3 py-2 text-sm leading-6 text-ink/70">{item.notes}</p> : null}
-                          </div>
-                          <div className="flex shrink-0 gap-1">
-                            <button
-                              type="button"
-                              className="rounded-xl border border-sage bg-white p-2 text-ink/70 hover:border-moss"
-                              aria-label={`Edit ${item.item_name}`}
-                              onClick={() => startEdit(item)}
-                            >
-                              <Edit3 className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-xl border border-coral/30 bg-white p-2 text-coral hover:bg-coral/10 disabled:opacity-50"
-                              aria-label={`Archive ${item.item_name}`}
-                              disabled={archivingId === item.id}
-                              onClick={() => void handleArchive(item)}
-                            >
-                              <Archive className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className={`mt-3 text-sm font-bold ${budgetItemNeedsAmount(item) ? "text-coral" : "text-ink"}`}>{monthlyLabel(item)}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-xl border border-dashed border-sage bg-mist px-4 py-5 text-sm text-ink/60">
-                    No items here yet.
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {section.items.length ? section.items.map(renderBudgetItemCard) : (
+                <p className="rounded-xl border border-dashed border-sage bg-mist px-4 py-5 text-sm text-ink/60">{section.empty}</p>
+              )}
+            </div>
+          </Card>
+        ))}
       </section>
 
       <div className="fixed bottom-20 left-4 right-4 z-20 md:hidden">
@@ -889,7 +608,7 @@ export function BudgetPage() {
                         list="budget-item-name-options"
                         value={form.itemName}
                         onChange={(event) => setForm((current) => ({ ...current, itemName: event.target.value }))}
-                        placeholder="Mortgage / Rent"
+                        placeholder="Mortgage / rent"
                       />
                       <datalist id="budget-item-name-options">
                         {ITEM_NAME_OPTIONS.map((itemName) => (
