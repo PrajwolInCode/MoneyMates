@@ -112,7 +112,7 @@ function labelForKind(kind: BudgetItemKind) {
 
 export function OnboardingPage() {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { household, members, budgetItems, isOwner, loading, createHousehold, joinHousehold, saveBudgetItem, completeBudgetSetup } = useHousehold();
   const [householdName, setHouseholdName] = useState("Our household");
   const [joinCode, setJoinCode] = useState("");
@@ -120,6 +120,7 @@ export function OnboardingPage() {
   const [activeTemplate, setActiveTemplate] = useState<BudgetOnboardingTemplate>(ONBOARDING_TEMPLATES[0]);
   const [draft, setDraft] = useState<BudgetDraft>(() => draftFromTemplate(ONBOARDING_TEMPLATES[0]));
   const [budgetSheetOpen, setBudgetSheetOpen] = useState(false);
+  const [setupChoice, setSetupChoice] = useState<"ask" | "setup">("ask");
   const [suggestions, setSuggestions] = useState<OnboardingSuggestion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -138,7 +139,6 @@ export function OnboardingPage() {
   const monthlyPlanned = totalBudgetItemMonthlyPlannedExpenses(currentUserItems);
   const showInviteStep = Boolean(household && isOwner && !inviteDismissed && members.length <= 1 && currentUserItems.length === 0);
   const completedOwnPart = Boolean(currentMember?.budget_setup_completed_at || currentUserItems.length > 0);
-  const userLabel = profile?.display_name || user?.email || "you";
   const memberOptions = members.map((member, index) => ({
     id: member.user_id,
     label: member.profile?.display_name?.trim() || member.profile?.email || `Member ${index + 1}`,
@@ -321,6 +321,19 @@ export function OnboardingPage() {
     }
   };
 
+  const skipSetupForNow = async () => {
+    setError(null);
+    setLoadingAction("complete");
+    try {
+      await completeBudgetSetup();
+      navigate("/", { replace: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not skip setup.");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   return (
     <main className="min-h-screen px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-5xl">
@@ -416,7 +429,7 @@ export function OnboardingPage() {
             <p className="text-sm font-semibold text-moss">Step 3</p>
             <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">Invite your partner or household member</h2>
             <p className="mt-2 text-sm leading-6 text-ink/65">
-              Share this household key so another member can join and add their own part later.
+              Share this household key so another member can join with their own account and add their part later. Do not share account passwords.
             </p>
             <div className="mt-5 rounded-2xl border border-sage bg-mist p-5 text-center">
               <p className="text-sm font-medium text-ink/60">Household key</p>
@@ -436,14 +449,36 @@ export function OnboardingPage() {
               </Button>
             </div>
           </Card>
+        ) : setupChoice === "ask" && currentUserItems.length === 0 ? (
+          <Card className="mx-auto max-w-2xl">
+            <p className="text-sm font-semibold text-moss">Step 4</p>
+            <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">Do you want to set up budgeting now?</h2>
+            <p className="mt-2 text-sm leading-6 text-ink/65">
+              MoneyMates can guide you through income, bills, repayments, savings, and everyday spending one at a time. You can skip this and add items later.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Button type="button" onClick={() => {
+                setSetupChoice("setup");
+                startTemplate(ONBOARDING_TEMPLATES[0]);
+              }}>
+                Yes, set up now
+              </Button>
+              <Button type="button" variant="secondary" loading={loadingAction === "complete"} onClick={() => void skipSetupForNow()}>
+                No, take me to dashboard
+              </Button>
+            </div>
+            <p className="mt-4 rounded-xl bg-mist px-3 py-2 text-xs leading-5 text-ink/60">
+              You will share a household key, not your account password. Each member signs in with their own account.
+            </p>
+          </Card>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="space-y-4">
               <Card>
                 <p className="text-sm font-semibold text-moss">Step 4</p>
-                <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">Start your part of the budget</h2>
+                <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">Let&apos;s build your part first.</h2>
                 <p className="mt-2 text-sm leading-6 text-ink/65">
-                  Items added here belong to {userLabel}. Shared household expenses are still attached to the member who added them.
+                  Add what you know now. You can leave amounts blank and come back later.
                 </p>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="rounded-xl bg-mist px-3 py-3">
@@ -455,6 +490,9 @@ export function OnboardingPage() {
                     <p className="mt-1 text-xl font-bold text-ink">{currency(monthlyPlanned)}</p>
                   </div>
                 </div>
+                <Button type="button" variant="ghost" className="mt-4 w-full" loading={loadingAction === "complete"} onClick={() => void skipSetupForNow()}>
+                  Skip for now
+                </Button>
               </Card>
 
               <div className="grid gap-3">
@@ -647,11 +685,17 @@ export function OnboardingPage() {
                       <Sparkles className="h-4 w-4" aria-hidden="true" />
                       Ask AI what I might be missing
                     </Button>
-                    <Button type="button" loading={loadingAction === "complete"} onClick={() => void continueToDashboard()}>
-                      Continue to dashboard
+                  <Button type="button" loading={loadingAction === "complete"} onClick={() => void continueToDashboard()}>
+                      Analyse my part
                       <ArrowRight className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   </div>
+
+                  {otherMembersWithData.length === 0 ? (
+                    <p className="mt-4 rounded-xl bg-mint px-3 py-2 text-sm leading-6 text-moss">
+                      We can analyse your part now. The full household picture will be ready when your partner adds their income and expenses.
+                    </p>
+                  ) : null}
 
                   <p className="mt-4 rounded-xl bg-mist px-3 py-2 text-xs leading-5 text-ink/60">
                     AI suggestions are only budgeting prompts. They do not provide tax, legal, loan, investment, insurance-policy, or product advice.

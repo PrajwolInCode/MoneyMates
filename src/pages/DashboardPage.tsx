@@ -75,19 +75,39 @@ export function DashboardPage() {
   const memberContributorCount = otherMembersWithData.length + (currentUserItems.length ? 1 : 0);
   const waitingForPartnerData = members.length < 2 || otherMembersWithData.length === 0;
   const combinedMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItems);
-  const combinedMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
-  const combinedSharedExpenses = monthlyItemTotal(activeBudgetItems, (item) => item.scope === "shared" && item.type !== "income" && item.type !== "info");
+  const combinedPersonalExpenses = monthlyItemTotal(
+    activeBudgetItems,
+    (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+  );
+  const combinedSharedExpenses = monthlyItemTotal(
+    activeBudgetItems,
+    (item) => item.scope === "shared" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+  );
+  const combinedDebtRepayments = monthlyItemTotal(activeBudgetItems, (item) => item.type === "debt");
   const combinedSavingsGoal = monthlyItemTotal(activeBudgetItems, (item) => item.type === "saving" || item.type === "buffer");
+  const combinedMonthlyPlan = combinedPersonalExpenses + combinedSharedExpenses + combinedDebtRepayments + combinedSavingsGoal || totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
   const combinedExpectedRemaining = combinedMonthlyIncome - combinedMonthlyPlan;
   const savingsProgressAmount = Math.max(0, combinedMonthlyIncome - spent - (combinedMonthlyPlan - combinedSavingsGoal));
   const savingsProgress = combinedSavingsGoal > 0 ? Math.min(100, (savingsProgressAmount / combinedSavingsGoal) * 100) : 0;
   const currentUserIncome = monthlyItemTotal(currentUserItems, (item) => item.type === "income");
   const currentUserPersonalBills = monthlyItemTotal(
     currentUserItems,
-    (item) => item.scope === "personal" && item.type !== "income" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+    (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
   );
+  const currentUserSharedExpenses = monthlyItemTotal(
+    currentUserItems,
+    (item) => item.scope === "shared" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+  );
+  const currentUserDebt = monthlyItemTotal(currentUserItems, (item) => item.type === "debt");
   const currentUserSavings = monthlyItemTotal(currentUserItems, (item) => item.type === "saving" || item.type === "buffer");
-  const currentUserExpectedRemaining = currentUserIncome - currentUserPersonalBills - currentUserSavings;
+  const currentUserExpectedRemaining = currentUserIncome - currentUserPersonalBills - currentUserSharedExpenses - currentUserDebt - currentUserSavings;
+  const equationIncome = waitingForPartnerData ? currentUserIncome : combinedMonthlyIncome;
+  const equationPersonal = waitingForPartnerData ? currentUserPersonalBills : combinedPersonalExpenses;
+  const equationShared = waitingForPartnerData ? currentUserSharedExpenses : combinedSharedExpenses;
+  const equationDebt = waitingForPartnerData ? currentUserDebt : combinedDebtRepayments;
+  const equationSavings = waitingForPartnerData ? currentUserSavings : combinedSavingsGoal;
+  const equationRemaining = equationIncome - equationPersonal - equationShared - equationDebt - equationSavings;
+  const actualFlowLeft = equationIncome - spent;
   const memberBudgetRows = useMemo(
     () =>
       members.map((member, index) => {
@@ -219,6 +239,44 @@ export function DashboardPage() {
                 </>
               ) : null}
             </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {activeBudgetItems.length ? (
+        <Card className="mb-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-moss">Monthly budget calculator</p>
+              <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">
+                {equationRemaining >= 0 ? "This plan leaves money to work with." : "This plan needs a small adjustment."}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-ink/65">
+                This is your monthly plan, not a bank balance. It shows what should be left after regular income, expenses, debt, and savings.
+              </p>
+            </div>
+            <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${equationRemaining >= 0 ? "bg-mint text-moss" : "bg-coral/10 text-coral"}`}>
+              Expected remaining: {currency(equationRemaining)}
+            </div>
+          </div>
+          <div className="mt-5 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              ["Income", equationIncome],
+              ["Personal bills", -equationPersonal],
+              ["Shared expenses", -equationShared],
+              ["Debt", -equationDebt],
+              ["Savings", -equationSavings],
+              ["Left", equationRemaining],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl bg-mist px-3 py-3">
+                <p className="text-xs font-semibold uppercase text-ink/45">{label}</p>
+                <p className="mt-1 text-lg font-bold text-ink">{currency(Number(value))}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 rounded-xl bg-sage/45 px-3 py-2 text-sm leading-6 text-ink/70">
+            Actual flow this month so far: {currency(equationIncome)} income minus {currency(spent)} tracked spending ={" "}
+            <span className="font-bold text-ink">{currency(actualFlowLeft)}</span>.
           </div>
         </Card>
       ) : null}

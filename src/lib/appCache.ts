@@ -12,7 +12,9 @@ export async function clearMoneyMatesAppCache() {
 
 export async function clearMoneyMatesAppCacheAndReload() {
   await clearMoneyMatesAppCache();
-  window.location.reload();
+  const url = new URL(window.location.href);
+  url.searchParams.set("app_refresh", String(Date.now()));
+  window.location.replace(url.toString());
 }
 
 export async function clearLocalAppCacheAndReload() {

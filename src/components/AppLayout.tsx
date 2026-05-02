@@ -4,6 +4,7 @@ import { useHousehold } from "../contexts/HouseholdContext";
 import { BottomNav, DesktopNav } from "./BottomNav";
 import { DevDebugPanel } from "./DevDebugPanel";
 import { MobilePullToRefresh } from "./MobilePullToRefresh";
+import { MoneyCheckInPrompt } from "./MoneyCheckInPrompt";
 import { NotificationCenter } from "./NotificationCenter";
 import { WarningBanner } from "./WarningBanner";
 
@@ -37,6 +38,7 @@ export function AppLayout() {
         <Outlet />
       </main>
 
+      <MoneyCheckInPrompt />
       <BottomNav />
       <DevDebugPanel />
     </div>

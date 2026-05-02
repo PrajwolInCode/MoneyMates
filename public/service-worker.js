@@ -1,4 +1,4 @@
-const CACHE_NAME = "moneymates-v20260502";
+const CACHE_NAME = "moneymates-v20260503-budgeting";
 const CACHE_PREFIX = "moneymates-";
 
 self.addEventListener("install", (event) => {

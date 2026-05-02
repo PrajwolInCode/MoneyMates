@@ -34,7 +34,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="mt-5 flex flex-col gap-2 sm:flex-row">
             <button
               className="inline-flex min-h-11 items-center justify-center rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white"
-              onClick={() => window.location.reload()}
+              onClick={() => void clearLocalAppCacheAndReload()}
             >
               Refresh app
             </button>

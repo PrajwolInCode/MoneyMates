@@ -853,9 +853,40 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           scope,
         };
 
+        const rpcPayload = {
+          p_id: id ?? null,
+          p_household_id: household.id,
+          p_owner_user_id: ownerUserId,
+          p_payer_user_id: payerUserId,
+          p_scope: scope,
+          p_item_name: input.item_name,
+          p_category: input.category,
+          p_type: input.type,
+          p_amount: amount,
+          p_frequency: input.frequency,
+          p_quantity: input.quantity,
+          p_start_date: input.start_date || null,
+          p_notes: input.notes || null,
+          p_needs_amount: needsAmount,
+          p_is_active: input.is_active,
+          p_budget_kind: budgetKind,
+        };
+
+        const { error: rpcError } = await supabase.rpc("save_household_budget_item", rpcPayload);
+        if (!rpcError) {
+          void sendHouseholdPhonePush({
+            householdId: household.id,
+            title: `${currentUserLabel()} ${id ? "updated" : "added"} a budget item`,
+            body: `${input.item_name} - ${needsAmount ? "Needs amount" : `$${Number(amount).toFixed(2)}`}`,
+            url: "/budget",
+          });
+          await refresh();
+          return;
+        }
+
         const writeTables = uniqueTables([existingItem?.source_table, "planned_budget_items", "budget_items"]);
         let saved = false;
-        let lastWriteError: unknown = null;
+        let lastWriteError: unknown = rpcError;
 
         for (const tableName of writeTables) {
           if (id) {
