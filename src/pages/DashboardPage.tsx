@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Copy, PieChart as PieChartIcon, Plus, UsersRound } from "lucide-react";
+import { BarChart3, Copy, Mail, PieChart as PieChartIcon, Plus, UsersRound } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -116,6 +116,16 @@ export function DashboardPage() {
   const equationSavings = waitingForPartnerData ? currentUserSavings : combinedSavingsGoal;
   const equationRemaining = equationIncome - equationPersonal - equationShared - equationDebt - equationSavings;
   const actualFlowLeft = equationIncome - spent;
+  const calculatorRows = [
+    { label: "Income", value: equationIncome, show: equationIncome > 0 },
+    { label: "Personal bills", value: -equationPersonal, show: equationPersonal > 0 },
+    { label: "Shared expenses", value: -equationShared, show: equationShared > 0 },
+    { label: "Debt", value: -equationDebt, show: equationDebt > 0 },
+    { label: "Savings", value: -equationSavings, show: equationSavings > 0 },
+    { label: "Tracked spending", value: -spent, show: spent > 0 },
+    { label: "Planned left", value: equationRemaining, show: equationIncome > 0 || equationPersonal > 0 || equationShared > 0 || equationDebt > 0 || equationSavings > 0 },
+    { label: "Actual left", value: actualFlowLeft, show: equationIncome > 0 || spent > 0 },
+  ].filter((item) => item.show);
   const memberBudgetRows = useMemo(
     () =>
       members.map((member, index) => {
@@ -159,6 +169,15 @@ export function DashboardPage() {
   const copyJoinCode = async () => {
     if (!household?.join_code) return;
     await navigator.clipboard.writeText(household.join_code);
+    setInviteCopied(true);
+  };
+  const inviteMessage = household
+    ? `Hi,\n\nI am setting up our MoneyMates household budget so we can see the monthly picture clearly.\n\nCould you join with this household key and add your regular income, bills, repayments, savings goals, and any shared expenses you usually cover?\n\nHousehold key: ${household.join_code}\n\nYou only need your own account. Please do not share passwords or bank login details.\n\nThanks.`
+    : "";
+  const inviteMailTo = `mailto:?subject=${encodeURIComponent("MoneyMates household budget")}&body=${encodeURIComponent(inviteMessage)}`;
+  const copyInviteMessage = async () => {
+    if (!inviteMessage) return;
+    await navigator.clipboard.writeText(inviteMessage);
     setInviteCopied(true);
   };
 
@@ -238,9 +257,9 @@ export function DashboardPage() {
               ) : null}
               {waitingForPartnerData ? (
                 <>
-                  <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyJoinCode()}>
+                  <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyInviteMessage()}>
                     <Copy className="h-4 w-4" aria-hidden="true" />
-                    {inviteCopied ? "Household key copied" : "Copy household key"}
+                    {inviteCopied ? "Invite copied" : "Copy invite message"}
                   </Button>
                   <Link
                     to="/onboarding"
@@ -267,19 +286,17 @@ export function DashboardPage() {
                 This is your monthly plan, not a bank balance. It shows what should be left after regular income, expenses, debt, and savings.
               </p>
             </div>
-            <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${equationRemaining >= 0 ? "bg-mint text-moss" : "bg-coral/10 text-coral"}`}>
-              Expected remaining: {currency(equationRemaining)}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${equationRemaining >= 0 ? "bg-mint text-moss" : "bg-coral/10 text-coral"}`}>
+                Planned left: {currency(equationRemaining)}
+              </div>
+              <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${actualFlowLeft >= 0 ? "bg-sage/60 text-navy" : "bg-coral/10 text-coral"}`}>
+                Actual left: {currency(actualFlowLeft)}
+              </div>
             </div>
           </div>
-          <div className="mt-5 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            {[
-              ["Income", equationIncome],
-              ["Personal bills", -equationPersonal],
-              ["Shared expenses", -equationShared],
-              ["Debt", -equationDebt],
-              ["Savings", -equationSavings],
-              ["Left", equationRemaining],
-            ].map(([label, value]) => (
+          <div className="mt-5 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {calculatorRows.map(({ label, value }) => (
               <div key={label} className="rounded-xl bg-mist px-3 py-3">
                 <p className="text-xs font-semibold uppercase text-ink/45">{label}</p>
                 <p className="mt-1 text-lg font-bold text-ink">{currency(Number(value))}</p>
@@ -319,17 +336,41 @@ export function DashboardPage() {
               <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserExpectedRemaining)}</p>
             </Card>
           ) : null}
+          {spent > 0 || currentUserIncome > 0 ? (
+            <Card>
+              <p className="text-sm font-semibold text-moss">Your actual left</p>
+              <p className={`mt-2 text-3xl font-bold tracking-normal ${actualFlowLeft < 0 ? "text-coral" : "text-ink"}`}>{currency(actualFlowLeft)}</p>
+              <p className="mt-2 text-xs text-ink/55">After tracked spending this month</p>
+            </Card>
+          ) : null}
           <Card className="sm:col-span-2 lg:col-span-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-moss">Your part is ready</p>
                 <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Your household picture will become clearer when everyone adds their part.</h2>
                 <p className="mt-2 text-sm leading-6 text-ink/65">Invite your partner or household member so MoneyMates can combine income, bills, goals, and shared expenses.</p>
+                {inviteMessage ? (
+                  <p className="mt-3 rounded-xl bg-mist px-3 py-3 text-sm leading-6 text-ink/70">
+                    Could you join with the household key and add your regular income, bills, repayments, savings goals, and any shared expenses you usually cover?
+                  </p>
+                ) : null}
               </div>
-              <Button type="button" variant="secondary" onClick={() => void copyJoinCode()}>
-                <Copy className="h-4 w-4" aria-hidden="true" />
-                {inviteCopied ? "Household key copied" : "Copy household key"}
-              </Button>
+              <div className="flex flex-col gap-2 sm:items-end">
+                <Button type="button" variant="secondary" onClick={() => void copyInviteMessage()}>
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                  {inviteCopied ? "Invite copied" : "Copy invite"}
+                </Button>
+                <a
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
+                  href={inviteMailTo}
+                >
+                  <Mail className="h-4 w-4" aria-hidden="true" />
+                  Email invite
+                </a>
+                <Button type="button" variant="ghost" onClick={() => void copyJoinCode()}>
+                  Copy key only
+                </Button>
+              </div>
             </div>
           </Card>
         </div>

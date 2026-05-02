@@ -498,7 +498,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   };
 
   const markNotificationsReadForUser = async (householdId: string, userId: string, readAt = new Date().toISOString()) => {
-    setStoredNotificationClearAt(householdId, userId, readAt);
+    const localClearUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    setStoredNotificationClearAt(householdId, userId, localClearUntil);
     setNotifications((current) =>
       current.map((item) => (item.household_id === householdId && item.user_id === userId && !item.read_at ? { ...item, read_at: readAt } : item)),
     );
@@ -767,6 +768,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setSelectedMonthState((current) => addMonthsToMonthStart(current, 1));
   };
 
+  const visibleNotifications = useMemo(
+    () => (household && user ? applyStoredNotificationClear(notifications, household.id, user.id) : notifications),
+    [household?.id, notifications, user?.id],
+  );
+
   const value = useMemo<HouseholdContextValue>(
     () => ({
       household,
@@ -777,10 +783,10 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       budgetItems,
       expenses,
       recurringPayments,
-      notifications,
+      notifications: visibleNotifications,
       expenseComments,
       aiInsight,
-      unreadNotificationCount: notifications.filter((item) => !item.read_at).length,
+      unreadNotificationCount: visibleNotifications.filter((item) => !item.read_at).length,
       monthStart,
       selectedMonth,
       loading,

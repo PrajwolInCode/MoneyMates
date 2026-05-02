@@ -297,7 +297,7 @@ export function BudgetPage() {
   const actualSpent = totalSpent(expenses);
   const monthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyIncome;
   const showingLegacyBudget = !activeItems.length && (legacyIncome > 0 || legacyPlannedExpenses > 0);
-  const hasBudgetData = hasBudgetItems;
+  const hasBudgetData = hasBudgetItems || showingLegacyBudget || actualSpent > 0;
   const budgetItemsLoadWarning = dataWarnings.find((warning) =>
     warning.includes("Budget items could not load. Your expenses and household data are still safe."),
   );
@@ -340,23 +340,31 @@ export function BudgetPage() {
   const sharedExpensesTotal = sharedExpenseItems.reduce((sum, item) => sum + monthlyValue(item), 0);
   const debtRepaymentsTotal = debtItems.reduce((sum, item) => sum + monthlyValue(item), 0);
   const savingsGoalTotal = savingsItems.reduce((sum, item) => sum + monthlyValue(item), 0);
-  const expectedRemaining = monthlyIncome - personalBillsTotal - sharedExpensesTotal - debtRepaymentsTotal - savingsGoalTotal;
   const plannedOutflowTotal = personalBillsTotal + sharedExpensesTotal + debtRepaymentsTotal + savingsGoalTotal;
+  const plannedRemaining = monthlyIncome - plannedOutflowTotal;
+  const actualRemaining = monthlyIncome - actualSpent;
+  const hasActualSpending = actualSpent > 0;
   const budgetSummaryCards = [
     { label: "Household monthly income", value: monthlyIncome, show: monthlyIncome > 0 },
-    { label: "Personal bills total", value: personalBillsTotal, show: personalBillsTotal > 0 },
-    { label: "Shared expenses total", value: sharedExpensesTotal, show: sharedExpensesTotal > 0 },
-    { label: "Savings goal", value: savingsGoalTotal, show: savingsGoalTotal > 0 },
-    { label: "Expected remaining", value: expectedRemaining, show: monthlyIncome > 0 || plannedOutflowTotal > 0 },
+    { label: "Planned commitments", value: plannedOutflowTotal, show: plannedOutflowTotal > 0 },
+    { label: "Planned remaining", value: plannedRemaining, show: monthlyIncome > 0 || plannedOutflowTotal > 0 },
     { label: "Actual spent this month", value: actualSpent, show: actualSpent > 0 },
+    { label: "Actual left after spending", value: actualRemaining, show: monthlyIncome > 0 || actualSpent > 0 },
   ].filter((item) => item.show);
-  const moneyEquationRows = [
+  const plannedEquationRows = [
     { label: "Income", value: monthlyIncome, prefix: "", show: monthlyIncome > 0 },
     { label: "minus personal bills", value: personalBillsTotal, prefix: "-", show: personalBillsTotal > 0 },
     { label: "minus shared expenses", value: sharedExpensesTotal, prefix: "-", show: sharedExpensesTotal > 0 },
     { label: "minus debt repayments", value: debtRepaymentsTotal, prefix: "-", show: debtRepaymentsTotal > 0 },
     { label: "minus savings goal", value: savingsGoalTotal, prefix: "-", show: savingsGoalTotal > 0 },
   ].filter((item) => item.show);
+  const actualEquationRows = [
+    { label: "Income", value: monthlyIncome, prefix: "", show: monthlyIncome > 0 },
+    { label: "minus tracked spending", value: actualSpent, prefix: "-", show: actualSpent > 0 },
+  ].filter((item) => item.show);
+  const moneyEquationRows = hasActualSpending ? actualEquationRows : plannedEquationRows;
+  const moneyEquationTotal = hasActualSpending ? actualRemaining : plannedRemaining;
+  const moneyEquationTitle = hasActualSpending ? "Actual left after spending" : "Planned remaining";
 
   const formMonthlyEquivalent = useMemo(() => {
     if (form.needsAmount || form.amount.trim() === "") return "Needs amount";
@@ -636,7 +644,7 @@ export function BudgetPage() {
           {budgetSummaryCards.map(({ label, value }) => (
             <Card key={label} className="p-4">
               <p className="text-sm font-medium text-ink/60">{label}</p>
-              <p className={`mt-2 text-2xl font-bold tracking-normal ${label === "Expected remaining" && Number(value) < 0 ? "text-coral" : "text-ink"}`}>
+              <p className={`mt-2 text-2xl font-bold tracking-normal ${label.includes("remaining") || label.includes("left") ? (Number(value) < 0 ? "text-coral" : "text-ink") : "text-ink"}`}>
                 {currency(Number(value))}
               </p>
             </Card>
@@ -649,9 +657,9 @@ export function BudgetPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-moss">Money equation</p>
-            <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Expected remaining</h2>
+            <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">{moneyEquationTitle}</h2>
           </div>
-          <p className={`text-xl font-bold ${expectedRemaining < 0 ? "text-coral" : "text-ink"}`}>{currency(expectedRemaining)}</p>
+          <p className={`text-xl font-bold ${moneyEquationTotal < 0 ? "text-coral" : "text-ink"}`}>{currency(moneyEquationTotal)}</p>
         </div>
         <div className="mt-4 space-y-3 text-sm">
           {moneyEquationRows.map(({ label, value, prefix }) => (
@@ -663,8 +671,8 @@ export function BudgetPage() {
             </div>
           ))}
           <div className="flex justify-between gap-4 border-t border-sage pt-3">
-            <span className="font-semibold text-ink">equals expected remaining</span>
-            <span className={`font-bold ${expectedRemaining < 0 ? "text-coral" : "text-ink"}`}>{currency(expectedRemaining)}</span>
+            <span className="font-semibold text-ink">equals {moneyEquationTitle.toLowerCase()}</span>
+            <span className={`font-bold ${moneyEquationTotal < 0 ? "text-coral" : "text-ink"}`}>{currency(moneyEquationTotal)}</span>
           </div>
         </div>
       </Card>
