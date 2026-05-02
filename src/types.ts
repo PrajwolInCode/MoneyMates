@@ -132,6 +132,10 @@ export type RecurringPayment = {
 export type CoachResponse = {
   summary: string;
   suggestions: string[];
+  savingsIdea: string;
+  needsVsWants: string;
+  safeSpendingSuggestion: string;
+  disclaimer: string;
   warning: string;
   todayAction: string;
 };
@@ -158,6 +162,14 @@ export type MonthlyCoachPayload = {
   householdName: string;
   month: string;
   totalIncome: number;
+  totalExpenses: number;
+  fixedExpenses: number;
+  flexibleExpenses: number;
+  sharedExpenses: number;
+  personalExpensesByMember: Array<{ name: string; amount: number }>;
+  savingsGoal: number;
+  actualExpensesThisMonth: number;
+  itemsNeedingAmount: Array<{ itemName: string; category: string; ownerName: string }>;
   plannedBudget: number;
   totalSpent: number;
   remainingBudget: number;

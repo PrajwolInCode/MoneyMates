@@ -1,13 +1,12 @@
 import { Link, useLocation } from "react-router-dom";
-import { BarChart3, Home, Lightbulb, Plus, Settings, WalletCards } from "lucide-react";
+import { Home, Lightbulb, Plus, Settings, WalletCards } from "lucide-react";
 import clsx from "clsx";
 
 const items = [
   { label: "Home", href: "/", icon: Home },
   { label: "Add", href: "/add", icon: Plus },
   { label: "Budget", href: "/budget", icon: WalletCards },
-  { label: "Insights", href: "/insights", icon: Lightbulb },
-  { label: "Reports", href: "/reports", icon: BarChart3 },
+  { label: "Coach", href: "/insights", icon: Lightbulb },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 

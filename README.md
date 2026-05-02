@@ -151,10 +151,16 @@ Expected AI JSON:
 {
   "summary": "...",
   "suggestions": ["...", "...", "..."],
+  "savingsIdea": "...",
+  "needsVsWants": "...",
+  "safeSpendingSuggestion": "...",
+  "disclaimer": "This is general budgeting guidance, not financial advice.",
   "warning": "...",
   "todayAction": "..."
 }
 ```
+
+The coach is a general budgeting helper, not a licensed financial adviser. It must not promise returns, recommend specific financial products, or provide tax, legal, loan, insurance-policy, or investment advice. App copy follows public financial-literacy concepts such as ASIC MoneySmart budgeting guidance, needs-versus-wants budgeting, emergency fund habits, and regular spending tracking.
 
 ## Netlify Deployment
 

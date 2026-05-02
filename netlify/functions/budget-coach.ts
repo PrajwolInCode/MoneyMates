@@ -6,7 +6,7 @@ const systemInstruction =
 const responseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "suggestions", "warning", "todayAction"],
+  required: ["summary", "suggestions", "savingsIdea", "needsVsWants", "safeSpendingSuggestion", "disclaimer", "warning", "todayAction"],
   properties: {
     summary: { type: "string" },
     suggestions: {
@@ -15,6 +15,10 @@ const responseSchema = {
       maxItems: 3,
       items: { type: "string" },
     },
+    savingsIdea: { type: "string" },
+    needsVsWants: { type: "string" },
+    safeSpendingSuggestion: { type: "string" },
+    disclaimer: { type: "string", const: "This is general budgeting guidance, not financial advice." },
     warning: { type: "string" },
     todayAction: { type: "string" },
   },
@@ -72,7 +76,7 @@ export const handler: Handler = async (event) => {
             content: [
               {
                 type: "input_text",
-                text: `Review this household budget summary and return only the requested JSON:\n${JSON.stringify(
+                text: `Review this summarized household budget only. Return JSON with one supportive summary, three adjustment opportunities, one savings idea, one needs-vs-wants suggestion, one safe spending suggestion if the household is ahead, one action for today, and the required disclaimer. Keep it calm, practical, non-judgmental, and avoid financial product recommendations, returns claims, tax/legal/loan advice, or shame-based wording:\n${JSON.stringify(
                   monthlySummary,
                   null,
                   2,

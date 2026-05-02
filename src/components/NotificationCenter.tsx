@@ -1,11 +1,13 @@
 import { Bell } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { formatShortDate } from "../lib/date";
 
 export function NotificationCenter() {
   const { notifications, unreadNotificationCount, markNotificationRead, markAllNotificationsRead } = useHousehold();
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const top = useMemo(() => notifications.slice(0, 12), [notifications]);
 
   return (
@@ -38,7 +40,13 @@ export function NotificationCenter() {
               top.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => void markNotificationRead(item.id)}
+                  onClick={() => {
+                    void markNotificationRead(item.id);
+                    setOpen(false);
+                    if (item.type.includes("budget")) navigate("/budget");
+                    else if (item.type.includes("ai")) navigate("/insights");
+                    else navigate("/");
+                  }}
                   className={`w-full rounded-xl p-3 text-left ${item.read_at ? "bg-mist" : "bg-sage/70"}`}
                 >
                   <p className="text-sm font-semibold text-ink">{item.title}</p>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AreaChart, BarChart3, CalendarDays, CircleDollarSign, Copy, Landmark, PieChart as PieChartIcon, Plus, UsersRound, Wallet } from "lucide-react";
+import { BarChart3, Copy, PieChart as PieChartIcon, Plus, UsersRound } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -18,32 +18,24 @@ import {
 } from "recharts";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
-import { CategoryProgressList } from "../components/CategoryProgressList";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
-import { RecurringList } from "../components/RecurringList";
+import { ProgressBar } from "../components/ProgressBar";
 import { RefreshDataButton } from "../components/RefreshDataButton";
-import { StatCard } from "../components/StatCard";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
-import {
-  biggestCategory,
-  buildCoachPayload,
-  dailyTrend,
-  plannedVsActual,
-  spendingByCategory,
-  spendingByPerson,
-  totalBudgetItemMonthlyIncome,
-  totalBudgetItemMonthlyPlannedExpenses,
-  totalBudget,
-  totalSpent,
-} from "../lib/budget";
+import { buildCoachPayload, dailyTrend, monthlyAmountForBudgetItem, spendingByCategory, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
 import { requestBudgetCoach } from "../lib/coach";
-import { daysLeftInMonth, formatMonthLabel } from "../lib/date";
-import { compactCurrency, currency } from "../lib/format";
+import { formatMonthLabel } from "../lib/date";
+import { compactCurrency, currency, personName } from "../lib/format";
+import type { BudgetItem } from "../types";
+
+function monthlyItemTotal(items: BudgetItem[], predicate: (item: BudgetItem) => boolean) {
+  return items.filter(predicate).reduce((sum, item) => sum + (monthlyAmountForBudgetItem(item) ?? 0), 0);
+}
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -67,19 +59,10 @@ export function DashboardPage() {
 
   const monthLabel = formatMonthLabel(monthStart);
   const spent = totalSpent(expenses);
-  const manualPlanned = totalBudgetItemMonthlyPlannedExpenses(budgetItems);
-  const planned = manualPlanned > 0 ? manualPlanned : totalBudget(budgetMonth, budgetLimits);
-  const remaining = planned - spent;
-  const daysLeft = daysLeftInMonth(monthStart);
-  const safeDailySpend = Math.max(0, remaining) / daysLeft;
-  const biggest = biggestCategory(expenses, categories, budgetLimits);
-  const people = spendingByPerson(expenses, members);
-
+  const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, budgetLimits), [expenses, categories, budgetLimits]);
-  const plannedRows = useMemo(() => plannedVsActual(expenses, categories, budgetLimits).slice(0, 8), [expenses, categories, budgetLimits]);
   const trendRows = useMemo(() => dailyTrend(expenses), [expenses]);
   const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length;
-  const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
   const currentUserItems = useMemo(
     () => activeBudgetItems.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
     [activeBudgetItems, user?.id],
@@ -93,6 +76,32 @@ export function DashboardPage() {
   const waitingForPartnerData = members.length < 2 || otherMembersWithData.length === 0;
   const combinedMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItems);
   const combinedMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
+  const combinedSharedExpenses = monthlyItemTotal(activeBudgetItems, (item) => item.scope === "shared" && item.type !== "income" && item.type !== "info");
+  const combinedSavingsGoal = monthlyItemTotal(activeBudgetItems, (item) => item.type === "saving" || item.type === "buffer");
+  const combinedExpectedRemaining = combinedMonthlyIncome - combinedMonthlyPlan;
+  const savingsProgressAmount = Math.max(0, combinedMonthlyIncome - spent - (combinedMonthlyPlan - combinedSavingsGoal));
+  const savingsProgress = combinedSavingsGoal > 0 ? Math.min(100, (savingsProgressAmount / combinedSavingsGoal) * 100) : 0;
+  const currentUserIncome = monthlyItemTotal(currentUserItems, (item) => item.type === "income");
+  const currentUserPersonalBills = monthlyItemTotal(
+    currentUserItems,
+    (item) => item.scope === "personal" && item.type !== "income" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+  );
+  const currentUserSavings = monthlyItemTotal(currentUserItems, (item) => item.type === "saving" || item.type === "buffer");
+  const currentUserExpectedRemaining = currentUserIncome - currentUserPersonalBills - currentUserSavings;
+  const memberBudgetRows = useMemo(
+    () =>
+      members.map((member, index) => {
+        const memberItems = activeBudgetItems.filter((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
+        const memberExpenses = monthlyItemTotal(memberItems, (item) => item.type !== "income" && item.type !== "info");
+        return {
+          name: personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
+          Income: monthlyItemTotal(memberItems, (item) => item.type === "income"),
+          Expenses: memberExpenses,
+          Personal: monthlyItemTotal(memberItems, (item) => item.scope === "personal" && item.type !== "income" && item.type !== "info"),
+        };
+      }),
+    [activeBudgetItems, members],
+  );
 
   const handleCoach = async () => {
     if (!household) return;
@@ -214,61 +223,86 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title={`${monthLabel} total spent`} value={currency(spent)} detail="Combined spending for this household." icon={CircleDollarSign} />
-        <StatCard
-          title="Remaining budget"
-          value={currency(remaining)}
-          detail={planned > 0 ? `${currency(planned)} planned for this month.` : "Add budget items to unlock remaining budget."}
-          icon={Wallet}
-          tone={remaining < 0 ? "danger" : "good"}
-        />
-        <StatCard
-          title="Safe daily spend"
-          value={currency(safeDailySpend)}
-          detail={`${daysLeft} day${daysLeft === 1 ? "" : "s"} left in the month.`}
-          icon={CalendarDays}
-          tone="good"
-        />
-        <StatCard
-          title="Biggest category"
-          value={biggest ? compactCurrency(biggest.spent) : "$0"}
-          detail={biggest ? biggest.category : "No category has spending yet."}
-          icon={Landmark}
-        />
-        {people.slice(0, 2).map((person) => (
-          <StatCard key={person.id} title={`Spending by ${person.name}`} value={currency(person.spent)} icon={AreaChart} />
-        ))}
-        <Card className="sm:col-span-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-moss">AI budget coach</p>
-              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">{aiInsight?.summary ?? "Ready for a calm check-in"}</h2>
+      {waitingForPartnerData ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <p className="text-sm font-semibold text-moss">Your income</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserIncome)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Your personal bills</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserPersonalBills)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Your planned savings</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserSavings)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Your expected remaining</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserExpectedRemaining)}</p>
+          </Card>
+          <Card className="sm:col-span-2 lg:col-span-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-moss">Your part is ready</p>
+                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Your household picture will become clearer when everyone adds their part.</h2>
+                <p className="mt-2 text-sm leading-6 text-ink/65">Invite your partner or household member so MoneyMates can combine income, bills, goals, and shared expenses.</p>
+              </div>
+              <Button type="button" variant="secondary" onClick={() => void copyJoinCode()}>
+                <Copy className="h-4 w-4" aria-hidden="true" />
+                {inviteCopied ? "Household key copied" : "Copy household key"}
+              </Button>
             </div>
-            <Button onClick={handleCoach} loading={coachLoading} variant="secondary">
-              Ask coach
-            </Button>
-          </div>
-          {aiInsight ? (
-            <div className="mt-4 space-y-3 text-sm leading-6 text-ink/70">
-              <p>{aiInsight.today_action}</p>
-              {aiInsight.warning ? <WarningBanner>{aiInsight.warning}</WarningBanner> : null}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm leading-6 text-ink/65">The coach only receives summarized monthly budget data, not raw account access.</p>
-          )}
-          {coachError ? (
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Card>
+            <p className="text-sm font-semibold text-moss">Combined income</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedMonthlyIncome)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Combined expenses</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedMonthlyPlan)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Shared expenses</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedSharedExpenses)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Expected remaining</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedExpectedRemaining)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Actual spending this month</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(spent)}</p>
+          </Card>
+          <Card>
+            <p className="text-sm font-semibold text-moss">Savings progress</p>
+            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(Math.min(savingsProgressAmount, combinedSavingsGoal))}</p>
             <div className="mt-3">
-              <WarningBanner tone="strong">{coachError}</WarningBanner>
+              <ProgressBar value={savingsProgress} />
             </div>
-          ) : null}
-        </Card>
-      </div>
+            <p className="mt-2 text-xs text-ink/55">Goal: {currency(combinedSavingsGoal)}</p>
+          </Card>
+          <Card className="sm:col-span-2 lg:col-span-3">
+            <p className="text-sm font-semibold text-moss">Personal expenses by member</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {memberBudgetRows.map((row) => (
+                <div key={row.name} className="rounded-xl bg-mist px-3 py-3">
+                  <p className="text-sm font-semibold text-ink">{row.name}</p>
+                  <p className="mt-1 text-lg font-bold text-ink">{currency(row.Personal)}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-normal text-ink">Spending by category</h2>
+            <h2 className="text-xl font-bold tracking-normal text-ink">Household spending categories</h2>
             <PieChartIcon className="h-5 w-5 text-moss" aria-hidden="true" />
           </div>
           {categoryRows.length ? (
@@ -285,38 +319,38 @@ export function DashboardPage() {
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyState title="No chart data yet" message="Add an expense to see where money is going." />
+            <EmptyState title="No category spending yet" message="Add expenses to see a simple household category split." />
           )}
         </Card>
 
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-normal text-ink">Planned vs actual</h2>
+            <h2 className="text-xl font-bold tracking-normal text-ink">Income vs expenses by member</h2>
             <BarChart3 className="h-5 w-5 text-moss" aria-hidden="true" />
           </div>
-          {plannedRows.length ? (
+          {memberBudgetRows.some((row) => row.Income > 0 || row.Expenses > 0) ? (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={plannedRows}>
+                <BarChart data={memberBudgetRows}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="category" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={(value) => compactCurrency(Number(value))} />
                   <Tooltip formatter={(value) => currency(Number(value))} />
                   <Legend />
-                  <Bar dataKey="Planned" fill="#dcebe2" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="Actual" fill="#2f6b57" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="Income" fill="#2f6b57" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="Expenses" fill="#c78f5b" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyState title="No plan yet" message="Set category limits to compare planned and actual spending." />
+            <EmptyState title="No member plan yet" message="Add income and expenses to compare the member split." />
           )}
         </Card>
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
-          <h2 className="text-xl font-bold tracking-normal text-ink">Daily spending trend</h2>
+          <h2 className="text-xl font-bold tracking-normal text-ink">Actual spending this month</h2>
           {trendRows.length ? (
             <div className="mt-4 h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -337,10 +371,30 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <h2 className="text-xl font-bold tracking-normal text-ink">Upcoming recurring payments</h2>
-          <div className="mt-2">
-            <RecurringList payments={recurringPayments.slice(0, 5)} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-moss">Ask Coach</p>
+              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
+                {aiInsight?.summary ?? "MoneyMates can look at your plan and suggest small ways to improve this month."}
+              </h2>
+            </div>
+            <Button onClick={handleCoach} loading={coachLoading} variant="secondary">
+              Ask Coach
+            </Button>
           </div>
+          {aiInsight ? (
+            <div className="mt-4 space-y-3 text-sm leading-6 text-ink/70">
+              <p>{aiInsight.today_action}</p>
+              {aiInsight.warning ? <WarningBanner>{aiInsight.warning}</WarningBanner> : null}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-ink/65">The coach only receives summarized monthly budget data, not raw account access.</p>
+          )}
+          {coachError ? (
+            <div className="mt-3">
+              <WarningBanner tone="strong">{coachError}</WarningBanner>
+            </div>
+          ) : null}
         </Card>
       </div>
 
@@ -364,7 +418,7 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
-      <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="mt-5">
         <Card>
           <h2 className="text-xl font-bold tracking-normal text-ink">Recent transactions</h2>
           <div className="mt-2">
@@ -374,12 +428,6 @@ export function DashboardPage() {
               emptyTitle="No expenses for this month yet"
               emptyMessage="Use the month selector to review another month, or add an expense for this one."
             />
-          </div>
-        </Card>
-        <Card>
-          <h2 className="text-xl font-bold tracking-normal text-ink">Category progress</h2>
-          <div className="mt-4">
-            <CategoryProgressList expenses={expenses} categories={categories} limits={budgetLimits} />
           </div>
         </Card>
       </div>

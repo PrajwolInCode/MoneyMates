@@ -107,6 +107,10 @@ export function totalBudgetItemMonthlyPlannedExpenses(items: BudgetItem[]) {
     .reduce((sum, item) => sum + (monthlyAmountForBudgetItem(item) ?? 0), 0);
 }
 
+function itemMonthlyTotal(items: BudgetItem[], predicate: (item: BudgetItem) => boolean) {
+  return items.filter(predicate).reduce((sum, item) => sum + (monthlyAmountForBudgetItem(item) ?? 0), 0);
+}
+
 export function dailyTrend(expenses: Expense[]) {
   const grouped = new Map<string, number>();
   expenses.forEach((expense) => grouped.set(expense.spent_on, (grouped.get(expense.spent_on) ?? 0) + Number(expense.amount)));
@@ -151,11 +155,34 @@ export function buildCoachPayload(params: {
     limit: item.limit,
     remaining: item.remaining,
   }));
+  const activeItems = (params.budgetItems ?? []).filter((item) => item.is_active && !item.archived_at);
+  const memberName = (userId: string) => {
+    const member = params.members.find((item) => item.user_id === userId);
+    return personName(member?.profile?.display_name, member?.profile?.email ?? "Household member");
+  };
+  const fixedExpenses = itemMonthlyTotal(activeItems, (item) => item.type === "fixed" || item.type === "debt");
+  const sharedExpenses = itemMonthlyTotal(activeItems, (item) => item.scope === "shared" && item.type !== "income" && item.type !== "info");
+  const savingsGoal = itemMonthlyTotal(activeItems, (item) => item.type === "saving" || item.type === "buffer");
+  const personalExpensesByMember = params.members.map((member) => ({
+    name: memberName(member.user_id),
+    amount: itemMonthlyTotal(activeItems, (item) => item.scope === "personal" && item.owner_user_id === member.user_id && item.type !== "income" && item.type !== "info"),
+  }));
+  const itemsNeedingAmount = activeItems
+    .filter((item) => budgetItemNeedsAmount(item))
+    .map((item) => ({ itemName: item.item_name, category: item.category, ownerName: memberName(item.owner_user_id) }));
 
   return {
     householdName: params.household.name,
     month: params.monthStart,
     totalIncome: params.budgetItems?.length ? totalBudgetItemMonthlyIncome(params.budgetItems) : Number(params.budgetMonth?.total_income ?? 0),
+    totalExpenses: plannedBudget,
+    fixedExpenses,
+    flexibleExpenses: Math.max(0, plannedBudget - fixedExpenses - savingsGoal),
+    sharedExpenses,
+    personalExpensesByMember,
+    savingsGoal,
+    actualExpensesThisMonth: spent,
+    itemsNeedingAmount,
     plannedBudget,
     totalSpent: spent,
     remainingBudget,

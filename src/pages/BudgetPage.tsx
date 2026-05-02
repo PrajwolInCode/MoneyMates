@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Archive, Edit3, Plus, Save, X } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -43,6 +44,7 @@ type BudgetTemplate = Pick<BudgetFormState, "itemName" | "category" | "type" | "
 };
 
 type AddChoice = {
+  id: string;
   label: string;
   type: BudgetItemType;
   scope: BudgetItemScope;
@@ -132,12 +134,12 @@ const COMMON_TEMPLATES: BudgetTemplate[] = [
 ];
 
 const ADD_CHOICES: AddChoice[] = [
-  { label: "Income", type: "income", scope: "personal", category: "Income" },
-  { label: "Bill/direct debit", type: "fixed", scope: "personal", category: "Bills" },
-  { label: "Debt repayment", type: "debt", scope: "personal", category: "Debt" },
-  { label: "Shared expense", type: "variable", scope: "shared", category: "Shared household" },
-  { label: "Personal expense", type: "variable", scope: "personal", category: "Personal spending" },
-  { label: "Savings goal", type: "saving", scope: "personal", category: "Savings" },
+  { id: "income", label: "Income", type: "income", scope: "personal", category: "Income" },
+  { id: "bill", label: "Bill/direct debit", type: "fixed", scope: "personal", category: "Bills" },
+  { id: "debt", label: "Debt repayment", type: "debt", scope: "personal", category: "Debt" },
+  { id: "shared_expense", label: "Shared expense", type: "variable", scope: "shared", category: "Shared household" },
+  { id: "personal_expense", label: "Personal expense", type: "variable", scope: "personal", category: "Personal spending" },
+  { id: "saving", label: "Savings goal", type: "saving", scope: "personal", category: "Savings" },
 ];
 
 function labelForFrequency(frequency: BudgetFrequency) {
@@ -210,6 +212,7 @@ function stepTitle(step: number) {
 export function BudgetPage() {
   const { user } = useAuth();
   const { members, budgetItems, budgetMonth, budgetLimits, expenses, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showForm, setShowForm] = useState(false);
   const [formStep, setFormStep] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -242,6 +245,27 @@ export function BudgetPage() {
       ),
     [memberOptions],
   );
+
+  useEffect(() => {
+    const addType = searchParams.get("add");
+    if (!addType || showForm) return;
+    const choice = ADD_CHOICES.find((item) => item.id === addType);
+    if (!choice) return;
+    setEditingId(null);
+    setForm({
+      ...EMPTY_FORM,
+      startDate: monthStart,
+      ownerUserId: defaultMemberId,
+      payerUserId: defaultMemberId,
+      type: choice.type,
+      scope: choice.scope,
+      category: choice.category,
+    });
+    setFormStep(3);
+    setError(null);
+    setShowForm(true);
+    setSearchParams({}, { replace: true });
+  }, [defaultMemberId, monthStart, searchParams, setSearchParams, showForm]);
   const hasBudgetItems = activeItems.length > 0;
   const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
   const legacyIncome = Number(budgetMonth?.total_income ?? 0);

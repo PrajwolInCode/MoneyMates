@@ -1024,8 +1024,14 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           household_id: household.id,
           budget_month_id: targetMonth.id,
           summary: response.summary,
-          suggestions: response.suggestions,
-          warning: response.warning,
+          suggestions: [
+            ...response.suggestions,
+            response.savingsIdea,
+            response.needsVsWants,
+            response.safeSpendingSuggestion,
+            response.disclaimer,
+          ].filter(Boolean),
+          warning: response.warning || response.disclaimer,
           today_action: response.todayAction,
           created_by: user.id,
         });

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Save } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { FormField } from "../components/FormField";
@@ -91,6 +92,14 @@ export function AddExpensePage() {
       />
 
       <Card className="mx-auto max-w-2xl">
+        <div className="mb-5 grid gap-2 sm:grid-cols-2">
+          <Link className="rounded-2xl bg-sage/60 p-4 text-sm font-semibold text-ink hover:bg-sage" to="/budget?add=income">
+            Add income
+          </Link>
+          <Link className="rounded-2xl bg-sage/60 p-4 text-sm font-semibold text-ink hover:bg-sage" to="/budget?add=shared_expense">
+            Add shared expense
+          </Link>
+        </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <FormField label="Amount" error={errors.amount}>
             <input

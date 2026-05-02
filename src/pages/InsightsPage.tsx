@@ -63,13 +63,13 @@ export function InsightsPage() {
     <div>
       <PageHeader
         eyebrow={formatMonthLabel(monthStart)}
-        title="Insights"
-        description="Use this page for the calmer patterns: category pressure, daily rhythm, person split, and coaching."
+        title="Coach"
+        description="Ask for general budgeting guidance after your household has enough plan and spending data."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <MonthSelector />
             <Button className="w-full sm:w-auto" onClick={handleCoach} loading={loading}>
-              Ask coach
+              Ask Coach
             </Button>
           </div>
         }
@@ -84,10 +84,10 @@ export function InsightsPage() {
       <Card>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-semibold text-moss">AI budget coach</p>
+            <p className="text-sm font-semibold text-moss">Ask Coach</p>
             <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">{aiInsight?.summary ?? "No coaching summary yet"}</h2>
             <p className="mt-2 text-sm leading-6 text-ink/65">
-              Advice is based on monthly totals, category limits, fixed payments, and days left in the month.
+              MoneyMates can look at your plan and suggest small ways to improve this month. It receives summarized household data only.
             </p>
           </div>
           {aiInsight?.warning ? <WarningBanner>{aiInsight.warning}</WarningBanner> : null}
