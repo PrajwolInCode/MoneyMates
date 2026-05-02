@@ -8,6 +8,8 @@ import type {
   AiInsight,
   BudgetFrequency,
   BudgetItem,
+  BudgetItemKind,
+  BudgetItemScope,
   BudgetItemType,
   BudgetLimit,
   BudgetMonth,
@@ -42,6 +44,8 @@ type BudgetItemInput = {
   amount: number | null;
   frequency: BudgetFrequency;
   quantity: number;
+  item_scope?: BudgetItemScope;
+  budget_kind?: BudgetItemKind;
   start_date?: string | null;
   notes?: string | null;
   needs_amount: boolean;
@@ -93,6 +97,7 @@ type HouseholdContextValue = {
   saveBudget: (input: { totalIncome: number; plannedBudget: number; limits: BudgetLimitInput[] }) => Promise<void>;
   saveBudgetItem: (input: BudgetItemInput, id?: string) => Promise<void>;
   archiveBudgetItem: (id: string) => Promise<void>;
+  completeBudgetSetup: () => Promise<void>;
   createCategory: (name: string) => Promise<void>;
   saveRecurringPayment: (input: { name: string; amount: number; dueDay: number; categoryId: string }) => Promise<void>;
   deleteRecurringPayment: (id: string) => Promise<void>;
@@ -124,6 +129,7 @@ function normalizeMember(row: any): HouseholdMember {
     user_id: row.user_id,
     role: row.role,
     joined_at: row.joined_at,
+    budget_setup_completed_at: row.budget_setup_completed_at ?? null,
     profile: row.profiles ?? row.profile ?? null,
   };
 }
@@ -136,15 +142,45 @@ function normalizeRecurring(row: any): RecurringPayment {
   };
 }
 
+function defaultBudgetKind(type: BudgetItemType): BudgetItemKind {
+  if (type === "income") return "income";
+  if (type === "debt") return "debt_repayment";
+  if (type === "saving") return "savings_goal";
+  if (type === "buffer") return "buffer";
+  if (type === "info") return "info";
+  if (type === "fixed") return "bill";
+  return "regular_expense";
+}
+
+function normalizeBudgetItemScope(value: unknown): BudgetItemScope {
+  return value === "shared" ? "shared" : "personal";
+}
+
+function normalizeBudgetItemKind(value: unknown, type: BudgetItemType): BudgetItemKind {
+  const allowed: BudgetItemKind[] = [
+    "income",
+    "direct_debit",
+    "bill",
+    "debt_repayment",
+    "savings_goal",
+    "regular_expense",
+    "shared_expense",
+    "buffer",
+    "info",
+  ];
+  return allowed.includes(value as BudgetItemKind) ? (value as BudgetItemKind) : defaultBudgetKind(type);
+}
+
 function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"]): BudgetItem {
   const amount = row.amount === null || row.amount === undefined ? null : Number(row.amount);
+  const type = (row.type ?? row.item_type ?? "variable") as BudgetItemType;
   return {
     ...row,
     id: row.id,
     household_id: row.household_id,
     item_name: row.item_name ?? row.name ?? "Budget item",
     category: row.category ?? "Other",
-    type: row.type ?? row.item_type ?? "variable",
+    type,
     amount,
     frequency: row.frequency ?? "monthly",
     quantity: Number(row.quantity ?? 1),
@@ -152,7 +188,10 @@ function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"])
     notes: row.notes ?? null,
     needs_amount: row.needs_amount === null || row.needs_amount === undefined ? amount === null : Boolean(row.needs_amount),
     is_active: row.is_active === null || row.is_active === undefined ? true : Boolean(row.is_active),
+    item_scope: normalizeBudgetItemScope(row.item_scope),
+    budget_kind: normalizeBudgetItemKind(row.budget_kind, type),
     archived_at: row.archived_at ?? null,
+    created_by: row.created_by ?? "",
     source_table: sourceTable,
   };
 }
@@ -190,6 +229,12 @@ function isMissingRelation(caught: unknown) {
   const message = errorMessage(caught).toLowerCase();
   const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
   return message.includes("could not find the table") || code === "42p01" || code === "pgrst205";
+}
+
+function isMissingFunction(caught: unknown) {
+  const message = errorMessage(caught).toLowerCase();
+  const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
+  return message.includes("could not find the function") || code === "42883" || code === "pgrst202";
 }
 
 function isMissingColumn(caught: unknown) {
@@ -400,7 +445,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     ] = await Promise.all([
       supabase
         .from("household_members")
-        .select("household_id,user_id,role,joined_at,profiles(id,display_name,email,created_at,updated_at)")
+        .select("*,profiles(id,display_name,email,created_at,updated_at)")
         .eq("household_id", target.id)
         .order("joined_at", { ascending: true }),
       supabase.from("categories").select("*").eq("household_id", target.id).order("is_default", { ascending: false }),
@@ -754,7 +799,10 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         if (!household || !user) throw new Error("Create or join a household first.");
         const amount = input.amount === null || input.amount === undefined ? null : input.amount;
         const needsAmount = input.needs_amount || amount === null;
-        const row = {
+        const existingItem = id ? budgetItems.find((item) => item.id === id) : null;
+        const itemScope = input.item_scope ?? existingItem?.item_scope ?? "personal";
+        const budgetKind = input.budget_kind ?? existingItem?.budget_kind ?? (itemScope === "shared" ? "shared_expense" : defaultBudgetKind(input.type));
+        const baseRow = {
           household_id: household.id,
           item_name: input.item_name,
           category: input.category,
@@ -767,21 +815,37 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           needs_amount: needsAmount,
           is_active: input.is_active,
         };
+        const row = {
+          ...baseRow,
+          item_scope: itemScope,
+          budget_kind: budgetKind,
+        };
 
-        const existingItem = id ? budgetItems.find((item) => item.id === id) : null;
         const writeTables = uniqueTables([existingItem?.source_table, "planned_budget_items", "budget_items"]);
         let saved = false;
         let lastWriteError: unknown = null;
 
         for (const tableName of writeTables) {
           if (id) {
-            const { data: updatedRow, error: updateError } = await supabase
+            let { data: updatedRow, error: updateError } = await supabase
               .from(tableName)
               .update(row)
               .eq("id", id)
               .eq("household_id", household.id)
               .select("id")
               .maybeSingle();
+
+            if (updateError && isMissingColumn(updateError)) {
+              const fallback = await supabase
+                .from(tableName)
+                .update(baseRow)
+                .eq("id", id)
+                .eq("household_id", household.id)
+                .select("id")
+                .maybeSingle();
+              updatedRow = fallback.data;
+              updateError = fallback.error;
+            }
 
             if (updateError) {
               if (isMissingRelation(updateError)) {
@@ -795,7 +859,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
             break;
           }
 
-          const { error: insertError } = await supabase.from(tableName).insert({ ...row, created_by: user.id }).select("id").single();
+          let { error: insertError } = await supabase.from(tableName).insert({ ...row, created_by: user.id }).select("id").single();
+          if (insertError && isMissingColumn(insertError)) {
+            const fallback = await supabase.from(tableName).insert({ ...baseRow, created_by: user.id }).select("id").single();
+            insertError = fallback.error;
+          }
           if (insertError) {
             if (isMissingRelation(insertError)) {
               lastWriteError = insertError;
@@ -870,6 +938,22 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           body: archivedItem?.item_name ?? "Budget item archived",
           url: "/budget",
         });
+        await refresh();
+      },
+      completeBudgetSetup: async () => {
+        if (!household || !user) throw new Error("Create or join a household first.");
+        const completedAt = new Date().toISOString();
+        const { error: setupError } = await supabase.rpc("complete_household_budget_setup", { p_household_id: household.id });
+        if (setupError) {
+          if (isMissingColumn(setupError) || isMissingFunction(setupError)) {
+            await refresh();
+            return;
+          }
+          throw setupError;
+        }
+        setMembers((current) =>
+          current.map((member) => (member.household_id === household.id && member.user_id === user.id ? { ...member, budget_setup_completed_at: completedAt } : member)),
+        );
         await refresh();
       },
       createCategory: async (name) => {

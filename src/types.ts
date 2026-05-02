@@ -22,6 +22,7 @@ export type HouseholdMember = {
   user_id: string;
   role: MemberRole;
   joined_at: string;
+  budget_setup_completed_at?: string | null;
   profile?: Profile | null;
 };
 
@@ -60,6 +61,19 @@ export type BudgetItemType = "income" | "fixed" | "variable" | "debt" | "saving"
 
 export type BudgetFrequency = "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly" | "one_time" | "unknown";
 
+export type BudgetItemScope = "personal" | "shared";
+
+export type BudgetItemKind =
+  | "income"
+  | "direct_debit"
+  | "bill"
+  | "debt_repayment"
+  | "savings_goal"
+  | "regular_expense"
+  | "shared_expense"
+  | "buffer"
+  | "info";
+
 export type BudgetItem = {
   id: string;
   household_id: string;
@@ -73,6 +87,8 @@ export type BudgetItem = {
   notes?: string | null;
   needs_amount: boolean;
   is_active: boolean;
+  item_scope: BudgetItemScope;
+  budget_kind: BudgetItemKind;
   archived_at?: string | null;
   created_by: string;
   created_at: string;

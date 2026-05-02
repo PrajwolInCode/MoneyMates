@@ -20,7 +20,7 @@ import {
   totalSpent,
 } from "../lib/budget";
 import { formatMonthLabel } from "../lib/date";
-import { currency } from "../lib/format";
+import { currency, personName } from "../lib/format";
 import type { BudgetFrequency, BudgetItem, BudgetItemType } from "../types";
 
 type BudgetFormState = {
@@ -197,7 +197,7 @@ function templateForm(template: BudgetTemplate, monthStart: string): BudgetFormS
 }
 
 export function BudgetPage() {
-  const { budgetItems, budgetMonth, budgetLimits, expenses, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
+  const { members, budgetItems, budgetMonth, budgetLimits, expenses, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BudgetFormState>({ ...EMPTY_FORM, startDate: monthStart });
@@ -213,6 +213,16 @@ export function BudgetPage() {
   }, [toast]);
 
   const activeItems = useMemo(() => budgetItems.filter((item) => !item.archived_at), [budgetItems]);
+  const memberNames = useMemo(
+    () =>
+      new Map(
+        members.map((member, index) => [
+          member.user_id,
+          personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
+        ]),
+      ),
+    [members],
+  );
   const hasBudgetItems = activeItems.length > 0;
   const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
   const itemPlannedExpenses = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(activeItems), [activeItems]);
@@ -679,6 +689,10 @@ export function BudgetPage() {
                             </div>
                             <p className="mt-1 text-sm text-ink/60">
                               {item.category} - {amountDetail(item)}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-ink/50">
+                              Added by {memberNames.get(item.created_by) ?? "Household member"} -{" "}
+                              {item.item_scope === "shared" ? "Shared household" : "Personal"}
                             </p>
                             {item.notes ? <p className="mt-2 rounded-xl bg-white px-3 py-2 text-sm leading-6 text-ink/70">{item.notes}</p> : null}
                           </div>

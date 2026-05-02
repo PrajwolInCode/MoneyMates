@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AreaChart, BarChart3, CalendarDays, CircleDollarSign, Landmark, PieChart as PieChartIcon, Plus, Wallet } from "lucide-react";
+import { AreaChart, BarChart3, CalendarDays, CircleDollarSign, Copy, Landmark, PieChart as PieChartIcon, Plus, UsersRound, Wallet } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -27,6 +27,7 @@ import { RefreshDataButton } from "../components/RefreshDataButton";
 import { StatCard } from "../components/StatCard";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
+import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
 import {
   biggestCategory,
@@ -35,6 +36,7 @@ import {
   plannedVsActual,
   spendingByCategory,
   spendingByPerson,
+  totalBudgetItemMonthlyIncome,
   totalBudgetItemMonthlyPlannedExpenses,
   totalBudget,
   totalSpent,
@@ -44,6 +46,7 @@ import { daysLeftInMonth, formatMonthLabel } from "../lib/date";
 import { compactCurrency, currency } from "../lib/format";
 
 export function DashboardPage() {
+  const { user } = useAuth();
   const {
     household,
     members,
@@ -60,6 +63,7 @@ export function DashboardPage() {
   } = useHousehold();
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   const monthLabel = formatMonthLabel(monthStart);
   const spent = totalSpent(expenses);
@@ -75,6 +79,17 @@ export function DashboardPage() {
   const plannedRows = useMemo(() => plannedVsActual(expenses, categories, budgetLimits).slice(0, 8), [expenses, categories, budgetLimits]);
   const trendRows = useMemo(() => dailyTrend(expenses), [expenses]);
   const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length;
+  const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
+  const currentUserItems = useMemo(() => activeBudgetItems.filter((item) => item.created_by === user?.id), [activeBudgetItems, user?.id]);
+  const otherMembers = useMemo(() => members.filter((member) => member.user_id !== user?.id), [members, user?.id]);
+  const otherMembersWithData = useMemo(
+    () => otherMembers.filter((member) => activeBudgetItems.some((item) => item.created_by === member.user_id)),
+    [activeBudgetItems, otherMembers],
+  );
+  const memberContributorCount = otherMembersWithData.length + (currentUserItems.length ? 1 : 0);
+  const waitingForPartnerData = members.length < 2 || otherMembersWithData.length === 0;
+  const combinedMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItems);
+  const combinedMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
 
   const handleCoach = async () => {
     if (!household) return;
@@ -99,6 +114,12 @@ export function DashboardPage() {
     } finally {
       setCoachLoading(false);
     }
+  };
+
+  const copyJoinCode = async () => {
+    if (!household?.join_code) return;
+    await navigator.clipboard.writeText(household.join_code);
+    setInviteCopied(true);
   };
 
   return (
@@ -128,6 +149,65 @@ export function DashboardPage() {
           <p className="mt-2 text-sm leading-6 text-ink/65">
             This household loaded successfully, but there are no expenses, planned budget items, or legacy category limits for this month.
           </p>
+        </Card>
+      ) : null}
+
+      {household ? (
+        <Card className="mb-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-sage p-2 text-navy">
+                <UsersRound className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-moss">{waitingForPartnerData ? "Household setup" : "Combined household budget"}</p>
+                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
+                  {waitingForPartnerData
+                    ? currentUserItems.length
+                      ? "Your part is ready. Invite your partner so MoneyMates can build the full household picture."
+                      : "Start your part so MoneyMates can build the household picture."
+                    : "MoneyMates is combining member budget items into one shared plan."}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-ink/65">
+                  {waitingForPartnerData
+                    ? members.length < 2
+                      ? "Share the household key when you are ready. Your Supabase household data stays unchanged."
+                      : "A household member has joined and can add their income, bills, repayments, expenses, and goals from their account."
+                    : `${memberContributorCount} member${memberContributorCount === 1 ? "" : "s"} have budget data in this plan.`}
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[24rem]">
+              <div className="rounded-xl bg-mist px-3 py-3">
+                <p className="text-xs font-semibold uppercase text-ink/45">Members</p>
+                <p className="mt-1 text-lg font-bold text-ink">
+                  {memberContributorCount}/{members.length || 1}
+                </p>
+              </div>
+              <div className="rounded-xl bg-mist px-3 py-3">
+                <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
+                <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyIncome)}</p>
+              </div>
+              <div className="rounded-xl bg-mist px-3 py-3">
+                <p className="text-xs font-semibold uppercase text-ink/45">Plan</p>
+                <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyPlan)}</p>
+              </div>
+              {waitingForPartnerData ? (
+                <>
+                  <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyJoinCode()}>
+                    <Copy className="h-4 w-4" aria-hidden="true" />
+                    {inviteCopied ? "Household key copied" : "Copy household key"}
+                  </Button>
+                  <Link
+                    to="/onboarding"
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
+                  >
+                    Open setup
+                  </Link>
+                </>
+              ) : null}
+            </div>
+          </div>
         </Card>
       ) : null}
 

@@ -6,6 +6,7 @@ export default {
       colors: {
         ink: "#172422",
         mist: "#f4f8f5",
+        mint: "#e9f7ef",
         sage: "#dcebe2",
         moss: "#2f6b57",
         navy: "#0f3d3e",
