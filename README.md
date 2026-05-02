@@ -89,7 +89,7 @@ The migration creates:
 - `categories`
 - `budget_months`
 - `budget_limits`
-- `budget_items`
+- `planned_budget_items`
 - `expenses`
 - `recurring_payments`
 - `ai_insights`
@@ -99,6 +99,15 @@ The migration creates:
 RLS is enabled on every public table. Users can only read household data where they are members. Members can add their own expenses and manage household budget items. Users can update and delete only their own expenses. Household owners manage categories, monthly limits, and recurring payments. Members join through the safe `join_household_by_code` RPC.
 
 Do not put a Supabase service role key in the frontend.
+
+For the generic budget item UI, run the migrations through:
+
+```text
+supabase/migrations/202605030002_generic_budget_items_notifications_push.sql
+supabase/migrations/202605030003_rename_budget_items_to_planned_budget_items.sql
+```
+
+The frontend reads and writes planned budget items through `planned_budget_items`.
 
 ### Auth Email Limits
 

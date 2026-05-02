@@ -51,6 +51,16 @@ export function TransactionsList({ expenses, limit }: TransactionsListProps) {
             </div>
             <p className="shrink-0 font-semibold text-ink">{currency(Number(expense.amount))}</p>
           </div>
+          <div className="mt-2 rounded-xl border border-sage/70 bg-white px-3 py-2">
+            <p className="text-xs font-semibold text-ink/70">Transaction details</p>
+            <div className="mt-1 grid gap-1 text-xs text-ink/65 sm:grid-cols-2">
+              <span>Date: {formatShortDate(expense.spent_on)}</span>
+              <span>Category: {expense.category?.name ?? "Category"}</span>
+              {expense.merchant ? <span>Merchant: {expense.merchant}</span> : null}
+              <span>Added by: {personName(expense.profile?.display_name, expense.profile?.email ?? "Household member")}</span>
+            </div>
+            {expense.note ? <p className="mt-2 text-sm leading-6 text-ink/75">Note: {expense.note}</p> : null}
+          </div>
           <div className="mt-2 rounded-xl bg-mist p-2">
             <div className="mb-2 flex items-center gap-1 text-xs font-semibold text-ink/70">
               <MessageSquare className="h-3.5 w-3.5" />

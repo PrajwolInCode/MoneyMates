@@ -221,7 +221,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .eq("month_start", monthStart)
         .maybeSingle(),
       supabase
-        .from("budget_items")
+        .from("planned_budget_items")
         .select("*")
         .eq("household_id", target.id)
         .is("archived_at", null)
@@ -346,7 +346,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, () => void refresh())
       .on("postgres_changes", { event: "*", schema: "public", table: "expense_comments", filter: `household_id=eq.${household.id}` }, () => void refresh())
       .on("postgres_changes", { event: "*", schema: "public", table: "expenses", filter: `household_id=eq.${household.id}` }, () => void refresh())
-      .on("postgres_changes", { event: "*", schema: "public", table: "budget_items", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "planned_budget_items", filter: `household_id=eq.${household.id}` }, () => void refresh())
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -522,10 +522,10 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         };
 
         if (id) {
-          const { error: updateError } = await supabase.from("budget_items").update(row).eq("id", id).eq("household_id", household.id);
+          const { error: updateError } = await supabase.from("planned_budget_items").update(row).eq("id", id).eq("household_id", household.id);
           if (updateError) throw updateError;
         } else {
-          const { error: insertError } = await supabase.from("budget_items").insert({ ...row, created_by: user.id });
+          const { error: insertError } = await supabase.from("planned_budget_items").insert({ ...row, created_by: user.id });
           if (insertError) throw insertError;
         }
 
@@ -540,7 +540,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       archiveBudgetItem: async (id) => {
         if (!household) throw new Error("Create or join a household first.");
         const { error: archiveError } = await supabase
-          .from("budget_items")
+          .from("planned_budget_items")
           .update({ is_active: false, archived_at: new Date().toISOString() })
           .eq("id", id)
           .eq("household_id", household.id);

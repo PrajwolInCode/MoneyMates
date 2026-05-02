@@ -90,7 +90,7 @@ export function ReportsPage() {
             .eq("month_start", selectedStart)
             .maybeSingle(),
           supabase
-            .from("budget_items")
+            .from("planned_budget_items")
             .select("*")
             .eq("household_id", householdId)
             .is("archived_at", null)

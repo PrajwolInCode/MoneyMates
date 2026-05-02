@@ -228,6 +228,19 @@ export function BudgetPage() {
       { income: [], fixed: [], debt: [], variable: [], saving: [], needs_amount: [] },
     );
   }, [activeItems]);
+  const formMonthlyEquivalent = useMemo(() => {
+    if (form.needsAmount || form.amount.trim() === "") return "Needs amount";
+    const amount = Number(form.amount);
+    const quantity = Number(form.quantity);
+    if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(quantity) || quantity <= 0) return "Enter amount and quantity";
+    const monthlyAmount = monthlyAmountForBudgetItem({
+      amount,
+      frequency: form.frequency,
+      quantity,
+      needs_amount: false,
+    });
+    return monthlyAmount === null ? "Not counted" : `${currency(monthlyAmount)}/month`;
+  }, [form.amount, form.frequency, form.needsAmount, form.quantity]);
 
   const startAdd = () => {
     setEditingId(null);
@@ -525,6 +538,13 @@ export function BudgetPage() {
               />
             </FormField>
 
+            <div className="rounded-xl border border-sage bg-white px-4 py-3">
+              <p className="text-sm font-semibold text-ink">Monthly equivalent</p>
+              <p className={`mt-1 text-xl font-bold tracking-normal ${formMonthlyEquivalent === "Needs amount" ? "text-coral" : "text-ink"}`}>
+                {formMonthlyEquivalent}
+              </p>
+            </div>
+
             <div className="rounded-xl bg-sage/45 p-4 text-sm text-ink/70">
               <p className="font-semibold text-ink">Monthly conversion examples</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -567,7 +587,15 @@ export function BudgetPage() {
         </Card>
       </div>
 
-      <div className="mt-5 space-y-4">
+      <section className="mt-5">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-normal text-ink">Budget items</h2>
+            <p className="text-sm text-ink/60">Manual household items with monthly equivalents, notes, and amount status.</p>
+          </div>
+          <p className="text-sm font-semibold text-moss">{activeItems.length} active item{activeItems.length === 1 ? "" : "s"}</p>
+        </div>
+        <div className="space-y-4">
         {GROUPS.map((group) => {
           const items = groupedItems[group.key];
           return (
@@ -628,7 +656,8 @@ export function BudgetPage() {
             </Card>
           );
         })}
-      </div>
+        </div>
+      </section>
     </div>
   );
 }
