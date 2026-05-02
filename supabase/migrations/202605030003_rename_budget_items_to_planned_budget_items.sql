@@ -10,6 +10,10 @@ alter index if exists budget_items_created_by_idx rename to planned_budget_items
 
 do $$
 begin
+  if to_regclass('public.planned_budget_items') is null then
+    return;
+  end if;
+
   if exists (
     select 1 from pg_trigger
     where tgname = 'budget_items_touch_updated_at'

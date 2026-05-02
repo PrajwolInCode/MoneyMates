@@ -2,10 +2,12 @@ import { Outlet } from "react-router-dom";
 import { CircleDollarSign } from "lucide-react";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { BottomNav, DesktopNav } from "./BottomNav";
+import { DevDebugPanel } from "./DevDebugPanel";
 import { NotificationCenter } from "./NotificationCenter";
+import { WarningBanner } from "./WarningBanner";
 
 export function AppLayout() {
-  const { household } = useHousehold();
+  const { household, dataWarnings } = useHousehold();
 
   return (
     <div className="min-h-screen pb-24 md:pb-0">
@@ -25,10 +27,16 @@ export function AppLayout() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:py-8">
+        {dataWarnings.length ? (
+          <div className="mb-4">
+            <WarningBanner>{dataWarnings.join(" ")}</WarningBanner>
+          </div>
+        ) : null}
         <Outlet />
       </main>
 
       <BottomNav />
+      <DevDebugPanel />
     </div>
   );
 }

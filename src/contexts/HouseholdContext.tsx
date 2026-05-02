@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { DEFAULT_CATEGORIES } from "../lib/constants";
 import { getMonthBounds, getMonthStart } from "../lib/date";
 import { sendHouseholdPhonePush } from "../lib/pushNotifications";
-import { supabase } from "../lib/supabase";
+import { hasSupabaseEnv, supabase } from "../lib/supabase";
 import type {
   AiInsight,
   BudgetFrequency,
@@ -47,6 +47,8 @@ type BudgetItemInput = {
   is_active: boolean;
 };
 
+type DataLoadIssue = "none" | "missing_env" | "no_household" | "rls_denied" | "schema_mismatch" | "load_failed";
+
 type HouseholdContextValue = {
   household: Household | null;
   members: HouseholdMember[];
@@ -63,6 +65,8 @@ type HouseholdContextValue = {
   monthStart: string;
   loading: boolean;
   error: string | null;
+  loadIssue: DataLoadIssue;
+  dataWarnings: string[];
   isOwner: boolean;
   refresh: () => Promise<void>;
   createHousehold: (name: string) => Promise<void>;
@@ -114,13 +118,14 @@ function normalizeRecurring(row: any): RecurringPayment {
   };
 }
 
-function normalizeBudgetItem(row: any): BudgetItem {
+function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"]): BudgetItem {
   return {
     ...row,
     amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
     quantity: Number(row.quantity ?? 1),
     needs_amount: Boolean(row.needs_amount),
     is_active: Boolean(row.is_active),
+    source_table: sourceTable,
   };
 }
 
@@ -129,6 +134,97 @@ function normalizeInsight(row: any): AiInsight {
     ...row,
     suggestions: Array.isArray(row.suggestions) ? row.suggestions : [],
   };
+}
+
+function errorMessage(caught: unknown) {
+  if (caught instanceof Error) return caught.message;
+  if (typeof caught === "object" && caught && "message" in caught) return String((caught as { message?: unknown }).message ?? "");
+  return "";
+}
+
+function classifyLoadIssue(caught: unknown): DataLoadIssue {
+  const message = errorMessage(caught).toLowerCase();
+  const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
+
+  if (message.includes("row-level security") || message.includes("permission denied") || code === "42501") return "rls_denied";
+  if (message.includes("could not find the table") || message.includes("schema cache") || code === "42p01" || code === "pgrst205") {
+    return "schema_mismatch";
+  }
+  if (message.includes("failed to fetch") || message.includes("invalid api key") || message.includes("jwt")) return "missing_env";
+  return "load_failed";
+}
+
+function isMissingRelation(caught: unknown) {
+  const message = errorMessage(caught).toLowerCase();
+  const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
+  return message.includes("could not find the table") || message.includes("schema cache") || code === "42p01" || code === "pgrst205";
+}
+
+function uniqueTables(tables: Array<BudgetItem["source_table"] | undefined>) {
+  return Array.from(new Set(tables.filter((table): table is NonNullable<BudgetItem["source_table"]> => Boolean(table))));
+}
+
+async function loadBudgetItemsForHousehold(householdId: string) {
+  const warnings: string[] = [];
+  const loadedById = new Map<string, BudgetItem>();
+  const tableNames = ["planned_budget_items", "budget_items"];
+
+  for (const tableName of tableNames) {
+    const { data, error: tableError } = await supabase
+      .from(tableName)
+      .select("*")
+      .eq("household_id", householdId)
+      .is("archived_at", null)
+      .order("is_active", { ascending: false })
+      .order("type", { ascending: true })
+      .order("item_name", { ascending: true });
+
+    if (tableError) {
+      if (isMissingRelation(tableError)) {
+        warnings.push(`${tableName} is not available in this Supabase schema.`);
+        continue;
+      }
+      throw tableError;
+    }
+
+    (data ?? []).map((row: any) => normalizeBudgetItem(row, tableName as BudgetItem["source_table"])).forEach((item) => loadedById.set(item.id, item));
+  }
+
+  return { data: Array.from(loadedById.values()), warnings };
+}
+
+async function loadOptionalNotifications(householdId: string, userId: string) {
+  const { data, error: notificationsError } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("household_id", householdId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(40);
+
+  if (notificationsError) {
+    if (isMissingRelation(notificationsError)) return { data: [] as Notification[], warning: "notifications is not available in this Supabase schema." };
+    throw notificationsError;
+  }
+
+  return { data: (data ?? []) as Notification[], warning: null };
+}
+
+async function loadOptionalExpenseComments(householdId: string) {
+  const { data, error: commentsError } = await supabase
+    .from("expense_comments")
+    .select("*,profiles(id,display_name,email,created_at,updated_at)")
+    .eq("household_id", householdId)
+    .order("created_at", { ascending: true });
+
+  if (commentsError) {
+    if (isMissingRelation(commentsError)) {
+      return { data: [] as ExpenseComment[], warning: "expense_comments is not available in this Supabase schema." };
+    }
+    throw commentsError;
+  }
+
+  return { data: (data ?? []).map((row: any) => ({ ...row, profile: row.profiles ?? null })), warning: null };
 }
 
 export function HouseholdProvider({ children }: { children: React.ReactNode }) {
@@ -146,6 +242,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [expenseComments, setExpenseComments] = useState<ExpenseComment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadIssue, setLoadIssue] = useState<DataLoadIssue>("none");
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const monthStart = getMonthStart();
 
   const isOwner = Boolean(household && user && household.owner_id === user.id);
@@ -163,6 +261,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setAiInsight(null);
     setNotifications([]);
     setExpenseComments([]);
+    setDataWarnings([]);
   };
 
 
@@ -202,11 +301,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       membersResult,
       categoriesResult,
       budgetMonthResult,
-      budgetItemsResult,
       expensesResult,
       recurringResult,
-      notificationsResult,
-      commentsResult,
     ] = await Promise.all([
       supabase
         .from("household_members")
@@ -221,14 +317,6 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .eq("month_start", monthStart)
         .maybeSingle(),
       supabase
-        .from("planned_budget_items")
-        .select("*")
-        .eq("household_id", target.id)
-        .is("archived_at", null)
-        .order("is_active", { ascending: false })
-        .order("type", { ascending: true })
-        .order("item_name", { ascending: true }),
-      supabase
         .from("expenses")
         .select("*,categories(*),profiles(id,display_name,email,created_at,updated_at)")
         .eq("household_id", target.id)
@@ -241,40 +329,45 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .select("*,categories(*)")
         .eq("household_id", target.id)
         .order("due_day", { ascending: true }),
-      supabase
-        .from("notifications")
-        .select("*")
-        .eq("household_id", target.id)
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("expense_comments")
-        .select("*,profiles(id,display_name,email,created_at,updated_at)")
-        .eq("household_id", target.id)
-        .order("created_at", { ascending: true }),
     ]);
 
     if (membersResult.error) throw membersResult.error;
     if (categoriesResult.error) throw categoriesResult.error;
     if (budgetMonthResult.error) throw budgetMonthResult.error;
-    if (budgetItemsResult.error) throw budgetItemsResult.error;
     if (expensesResult.error) throw expensesResult.error;
     if (recurringResult.error) throw recurringResult.error;
-    if (notificationsResult.error) throw notificationsResult.error;
-    if (commentsResult.error) throw commentsResult.error;
+
+    const [budgetItemsResult, notificationsResult, commentsResult] = await Promise.all([
+      loadBudgetItemsForHousehold(target.id),
+      loadOptionalNotifications(target.id, user.id),
+      loadOptionalExpenseComments(target.id),
+    ]);
+    const warnings = [
+      ...budgetItemsResult.warnings,
+      notificationsResult.warning,
+      commentsResult.warning,
+    ].filter((item): item is string => Boolean(item));
 
     const nextBudgetMonth = budgetMonthResult.data ? ({ ...budgetMonthResult.data } as BudgetMonth) : null;
     setMembers((membersResult.data ?? []).map(normalizeMember));
     setCategories((categoriesResult.data ?? []) as Category[]);
     setBudgetMonth(nextBudgetMonth);
-    setBudgetItems((budgetItemsResult.data ?? []).map(normalizeBudgetItem));
+    setBudgetItems(budgetItemsResult.data);
     setExpenses((expensesResult.data ?? []).map(normalizeExpense));
     const normalizedRecurring = (recurringResult.data ?? []).map(normalizeRecurring);
     setRecurringPayments(normalizedRecurring);
-    setNotifications((notificationsResult.data ?? []) as Notification[]);
-    setExpenseComments((commentsResult.data ?? []).map((row: any) => ({ ...row, profile: row.profiles ?? null })));
-    await ensureRecurringDueNotifications(target, normalizedRecurring);
+    setNotifications(notificationsResult.data);
+    setExpenseComments(commentsResult.data);
+    setDataWarnings(warnings);
+    try {
+      await ensureRecurringDueNotifications(target, normalizedRecurring);
+    } catch (caught) {
+      if (isMissingRelation(caught)) {
+        setDataWarnings((current) => [...current, "Recurring reminders are unavailable because notifications is not in this Supabase schema."]);
+      } else {
+        throw caught;
+      }
+    }
 
     if (!nextBudgetMonth) {
       setBudgetLimits([]);
@@ -303,32 +396,46 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const refresh = async () => {
     if (!user) {
       clearHouseholdData();
+      setError(null);
+      setLoadIssue("none");
+      return;
+    }
+
+    if (!hasSupabaseEnv) {
+      clearHouseholdData();
+      setError("Supabase environment variables are missing. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify.");
+      setLoadIssue("missing_env");
       return;
     }
 
     setLoading(true);
     setError(null);
+    setLoadIssue("none");
+    setDataWarnings([]);
 
     try {
       const { data, error: membershipError } = await supabase
         .from("household_members")
-        .select("role,households(*)")
+        .select("household_id,role,joined_at,households(*)")
         .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
+        .order("joined_at", { ascending: true });
 
       if (membershipError) throw membershipError;
-      const target = (data as any)?.households as Household | undefined;
+      const target = ((data as any[])?.[0]?.households ?? null) as Household | null;
 
       if (!target) {
         clearHouseholdData();
+        setLoadIssue("no_household");
         return;
       }
 
       setHousehold(target);
       await loadHouseholdData(target);
+      setLoadIssue("none");
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Could not load household.";
+      const issue = classifyLoadIssue(caught);
+      const message = errorMessage(caught) || "Could not load household.";
+      setLoadIssue(issue);
       setError(message);
     } finally {
       setLoading(false);
@@ -391,10 +498,22 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       monthStart,
       loading,
       error,
+      loadIssue,
+      dataWarnings,
       isOwner,
       refresh,
       createHousehold: async (name) => {
         if (!user) throw new Error("You need to be logged in.");
+        const { data: existingMemberships, error: existingMembershipError } = await supabase
+          .from("household_members")
+          .select("household_id")
+          .eq("user_id", user.id)
+          .limit(1);
+        if (existingMembershipError) throw existingMembershipError;
+        if (existingMemberships?.length) {
+          await refresh();
+          throw new Error("This account already belongs to a household. I refreshed the existing household instead of creating a new one.");
+        }
 
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
@@ -521,12 +640,47 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           is_active: input.is_active,
         };
 
-        if (id) {
-          const { error: updateError } = await supabase.from("planned_budget_items").update(row).eq("id", id).eq("household_id", household.id);
-          if (updateError) throw updateError;
-        } else {
-          const { error: insertError } = await supabase.from("planned_budget_items").insert({ ...row, created_by: user.id });
-          if (insertError) throw insertError;
+        const existingItem = id ? budgetItems.find((item) => item.id === id) : null;
+        const writeTables = uniqueTables([existingItem?.source_table, "planned_budget_items", "budget_items"]);
+        let saved = false;
+        let lastWriteError: unknown = null;
+
+        for (const tableName of writeTables) {
+          if (id) {
+            const { data: updatedRow, error: updateError } = await supabase
+              .from(tableName)
+              .update(row)
+              .eq("id", id)
+              .eq("household_id", household.id)
+              .select("id")
+              .maybeSingle();
+
+            if (updateError) {
+              if (isMissingRelation(updateError)) {
+                lastWriteError = updateError;
+                continue;
+              }
+              throw updateError;
+            }
+            if (!updatedRow) continue;
+            saved = true;
+            break;
+          }
+
+          const { error: insertError } = await supabase.from(tableName).insert({ ...row, created_by: user.id }).select("id").single();
+          if (insertError) {
+            if (isMissingRelation(insertError)) {
+              lastWriteError = insertError;
+              continue;
+            }
+            throw insertError;
+          }
+          saved = true;
+          break;
+        }
+
+        if (!saved) {
+          throw new Error(errorMessage(lastWriteError) || "Could not save budget item because no budget item table is available.");
         }
 
         void sendHouseholdPhonePush({
@@ -539,13 +693,36 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       },
       archiveBudgetItem: async (id) => {
         if (!household) throw new Error("Create or join a household first.");
-        const { error: archiveError } = await supabase
-          .from("planned_budget_items")
-          .update({ is_active: false, archived_at: new Date().toISOString() })
-          .eq("id", id)
-          .eq("household_id", household.id);
-        if (archiveError) throw archiveError;
         const archivedItem = budgetItems.find((item) => item.id === id);
+        const writeTables = uniqueTables([archivedItem?.source_table, "planned_budget_items", "budget_items"]);
+        let archived = false;
+        let lastArchiveError: unknown = null;
+
+        for (const tableName of writeTables) {
+          const { data: updatedRow, error: archiveError } = await supabase
+            .from(tableName)
+            .update({ is_active: false, archived_at: new Date().toISOString() })
+            .eq("id", id)
+            .eq("household_id", household.id)
+            .select("id")
+            .maybeSingle();
+
+          if (archiveError) {
+            if (isMissingRelation(archiveError)) {
+              lastArchiveError = archiveError;
+              continue;
+            }
+            throw archiveError;
+          }
+          if (!updatedRow) continue;
+          archived = true;
+          break;
+        }
+
+        if (!archived) {
+          throw new Error(errorMessage(lastArchiveError) || "Could not archive budget item because it was not found.");
+        }
+
         void sendHouseholdPhonePush({
           householdId: household.id,
           title: `${currentUserLabel()} archived a budget item`,
@@ -635,6 +812,8 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       monthStart,
       loading,
       error,
+      loadIssue,
+      dataWarnings,
       isOwner,
       user,
     ],

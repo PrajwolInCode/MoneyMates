@@ -32,14 +32,45 @@ function normalizeInsight(row: any): AiInsight {
   };
 }
 
-function normalizeBudgetItem(row: any): BudgetItem {
+function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"]): BudgetItem {
   return {
     ...row,
     amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
     quantity: Number(row.quantity ?? 1),
     needs_amount: Boolean(row.needs_amount),
     is_active: Boolean(row.is_active),
+    source_table: sourceTable,
   };
+}
+
+function isMissingRelation(caught: unknown) {
+  const message = caught instanceof Error ? caught.message.toLowerCase() : "";
+  const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
+  return message.includes("could not find the table") || message.includes("schema cache") || code === "42p01" || code === "pgrst205";
+}
+
+async function loadReportBudgetItems(householdId: string) {
+  const loadedById = new Map<string, BudgetItem>();
+  const tableNames: Array<NonNullable<BudgetItem["source_table"]>> = ["planned_budget_items", "budget_items"];
+
+  for (const tableName of tableNames) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("*")
+      .eq("household_id", householdId)
+      .is("archived_at", null)
+      .order("type", { ascending: true })
+      .order("item_name", { ascending: true });
+
+    if (error) {
+      if (isMissingRelation(error)) continue;
+      throw error;
+    }
+
+    (data ?? []).map((row: any) => normalizeBudgetItem(row, tableName)).forEach((item) => loadedById.set(item.id, item));
+  }
+
+  return Array.from(loadedById.values());
 }
 
 export function ReportsPage() {
@@ -75,7 +106,7 @@ export function ReportsPage() {
       const bounds = getMonthBounds(selectedStart);
 
       try {
-        const [expenseResult, monthResult, budgetItemsResult] = await Promise.all([
+        const [expenseResult, monthResult, nextBudgetItems] = await Promise.all([
           supabase
             .from("expenses")
             .select("*,categories(*),profiles(id,display_name,email,created_at,updated_at)")
@@ -89,24 +120,17 @@ export function ReportsPage() {
             .eq("household_id", householdId)
             .eq("month_start", selectedStart)
             .maybeSingle(),
-          supabase
-            .from("planned_budget_items")
-            .select("*")
-            .eq("household_id", householdId)
-            .is("archived_at", null)
-            .order("type", { ascending: true })
-            .order("item_name", { ascending: true }),
+          loadReportBudgetItems(householdId),
         ]);
 
         if (expenseResult.error) throw expenseResult.error;
         if (monthResult.error) throw monthResult.error;
-        if (budgetItemsResult.error) throw budgetItemsResult.error;
         if (!mounted) return;
 
         const nextBudgetMonth = monthResult.data ? ({ ...monthResult.data } as BudgetMonth) : null;
         setExpenses((expenseResult.data ?? []).map(normalizeExpense));
         setBudgetMonth(nextBudgetMonth);
-        setBudgetItems((budgetItemsResult.data ?? []).map(normalizeBudgetItem));
+        setBudgetItems(nextBudgetItems);
 
         if (!nextBudgetMonth) {
           setLimits([]);

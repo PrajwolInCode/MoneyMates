@@ -55,10 +55,17 @@ Create `.env.local`:
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 VITE_WEB_PUSH_PUBLIC_KEY=optional-public-vapid-key
+```
+
+Only `VITE_` variables are exposed to the browser. For `netlify dev` or Netlify production functions, keep server-only values in the Netlify environment:
+
+```bash
 SUPABASE_SERVICE_ROLE_KEY=server-only-supabase-service-role-key
 VAPID_PUBLIC_KEY=optional-public-vapid-key
 VAPID_PRIVATE_KEY=server-only-vapid-private-key
 VAPID_SUBJECT=mailto:alerts@example.com
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_MODEL=gpt-4.1-mini
 ```
 
 Run the app:

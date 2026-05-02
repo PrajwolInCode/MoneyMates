@@ -11,6 +11,7 @@ import { useHousehold } from "../contexts/HouseholdContext";
 import {
   budgetItemNeedsAmount,
   monthlyAmountForBudgetItem,
+  totalBudget,
   totalBudgetItemMonthlyIncome,
   totalBudgetItemMonthlyPlannedExpenses,
 } from "../lib/budget";
@@ -198,7 +199,7 @@ function formFromItem(item: BudgetItem): BudgetFormState {
 }
 
 export function BudgetPage() {
-  const { budgetItems, monthStart, saveBudgetItem, archiveBudgetItem } = useHousehold();
+  const { budgetItems, budgetMonth, budgetLimits, monthStart, saveBudgetItem, archiveBudgetItem } = useHousehold();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BudgetFormState>(EMPTY_FORM);
@@ -214,10 +215,15 @@ export function BudgetPage() {
   }, [toast]);
 
   const activeItems = useMemo(() => budgetItems.filter((item) => !item.archived_at), [budgetItems]);
-  const monthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
-  const plannedExpenses = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(activeItems), [activeItems]);
+  const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
+  const itemPlannedExpenses = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(activeItems), [activeItems]);
+  const legacyIncome = Number(budgetMonth?.total_income ?? 0);
+  const legacyPlannedExpenses = totalBudget(budgetMonth, budgetLimits);
+  const monthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyIncome;
+  const plannedExpenses = itemPlannedExpenses > 0 ? itemPlannedExpenses : legacyPlannedExpenses;
   const remaining = monthlyIncome - plannedExpenses;
   const needsAmountCount = activeItems.filter((item) => item.is_active && budgetItemNeedsAmount(item)).length;
+  const showingLegacyBudget = !activeItems.length && (legacyIncome > 0 || legacyPlannedExpenses > 0);
 
   const groupedItems = useMemo(() => {
     return activeItems.reduce<Record<BudgetGroupKey, BudgetItem[]>>(
@@ -565,6 +571,15 @@ export function BudgetPage() {
               </Button>
             </div>
           </form>
+        </Card>
+      ) : null}
+
+      {showingLegacyBudget ? (
+        <Card className="mb-5">
+          <p className="text-sm font-semibold text-moss">Existing monthly budget loaded</p>
+          <p className="mt-2 text-sm leading-6 text-ink/65">
+            This household has legacy budget data in budget months and category limits. It is still counted below; new manual items are saved separately.
+          </p>
         </Card>
       ) : null}
 

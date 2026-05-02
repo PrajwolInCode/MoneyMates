@@ -77,6 +77,7 @@ export type BudgetItem = {
   created_by: string;
   created_at: string;
   updated_at?: string;
+  source_table?: "planned_budget_items" | "budget_items";
 };
 
 export type Expense = {

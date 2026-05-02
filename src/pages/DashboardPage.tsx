@@ -72,6 +72,7 @@ export function DashboardPage() {
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, budgetLimits), [expenses, categories, budgetLimits]);
   const plannedRows = useMemo(() => plannedVsActual(expenses, categories, budgetLimits).slice(0, 8), [expenses, categories, budgetLimits]);
   const trendRows = useMemo(() => dailyTrend(expenses), [expenses]);
+  const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length;
 
   const handleCoach = async () => {
     if (!household) return;
@@ -114,6 +115,15 @@ export function DashboardPage() {
           </Link>
         }
       />
+
+      {hasNoHouseholdData ? (
+        <Card className="mb-5">
+          <p className="text-sm font-semibold text-moss">No household data yet</p>
+          <p className="mt-2 text-sm leading-6 text-ink/65">
+            This household loaded successfully, but there are no expenses, planned budget items, or legacy category limits for this month.
+          </p>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard title={`${monthLabel} total spent`} value={currency(spent)} detail="Combined spending for this household." icon={CircleDollarSign} />
