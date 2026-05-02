@@ -127,6 +127,53 @@ update public.planned_budget_items
 set owner_user_id = coalesce(owner_user_id, created_by)
 where owner_user_id is null;
 
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'planned_budget_items' and column_name = 'name'
+  ) then
+    update public.planned_budget_items
+    set item_name = coalesce(nullif(item_name, ''), nullif(name, ''), 'Budget item')
+    where item_name is null or item_name = '';
+
+    update public.planned_budget_items
+    set name = coalesce(nullif(name, ''), item_name, 'Budget item')
+    where name is null or name = '';
+
+    alter table public.planned_budget_items alter column name drop not null;
+    alter table public.planned_budget_items alter column name set default null;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'planned_budget_items' and column_name = 'item_type'
+  ) then
+    update public.planned_budget_items
+    set type = coalesce(nullif(type, ''), nullif(item_type, ''), 'variable')
+    where type is null or type = '';
+
+    update public.planned_budget_items
+    set item_type = coalesce(nullif(item_type, ''), type, 'variable')
+    where item_type is null or item_type = '';
+
+    alter table public.planned_budget_items alter column item_type drop not null;
+    alter table public.planned_budget_items alter column item_type set default null;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'planned_budget_items' and column_name = 'starts_on'
+  ) then
+    update public.planned_budget_items
+    set start_date = coalesce(start_date, starts_on)
+    where start_date is null and starts_on is not null;
+
+    alter table public.planned_budget_items alter column starts_on drop not null;
+    alter table public.planned_budget_items alter column starts_on set default null;
+  end if;
+end $$;
+
 update public.planned_budget_items
 set scope = coalesce(nullif(scope, ''), item_scope, 'personal'),
     item_scope = coalesce(nullif(item_scope, ''), scope, 'personal')
