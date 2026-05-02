@@ -1,41 +1,69 @@
-const CACHE_NAME = "moneymates-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE_NAME = "moneymates-v20260502";
+const CACHE_PREFIX = "moneymates-";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))),
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
+
+function shouldBypassCache(request) {
+  const url = new URL(request.url);
+  return (
+    request.method !== "GET" ||
+    url.hostname.includes("supabase.co") ||
+    url.pathname.startsWith("/.netlify/functions/") ||
+    url.pathname === "/index.html" ||
+    url.pathname === "/service-worker.js"
+  );
+}
+
+function isNavigationRequest(request) {
+  return request.mode === "navigate" || request.headers.get("accept")?.includes("text/html");
+}
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
-  if (request.method !== "GET") {
+  if (shouldBypassCache(request)) {
     return;
   }
 
-  if (request.url.includes("/.netlify/functions/") || request.url.includes("supabase.co")) {
+  if (isNavigationRequest(request)) {
+    event.respondWith(
+      fetch(request, { cache: "no-store" }).catch(
+        () =>
+          new Response("MoneyMates is offline. Reconnect and refresh the app.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          }),
+      ),
+    );
+    return;
+  }
+
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/icons/")) {
     return;
   }
 
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
-      return fetch(request)
-        .then((response) => {
+      return fetch(request).then((response) => {
+        if (response.ok) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(() => caches.match("/"));
+        }
+        return response;
+      });
     }),
   );
 });

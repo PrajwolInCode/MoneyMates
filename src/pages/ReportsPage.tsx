@@ -33,12 +33,19 @@ function normalizeInsight(row: any): AiInsight {
 }
 
 function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"]): BudgetItem {
+  const amount = row.amount === null || row.amount === undefined ? null : Number(row.amount);
   return {
     ...row,
-    amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+    item_name: row.item_name ?? row.name ?? "Budget item",
+    category: row.category ?? "Other",
+    type: row.type ?? row.item_type ?? "variable",
+    amount,
+    frequency: row.frequency ?? "monthly",
     quantity: Number(row.quantity ?? 1),
-    needs_amount: Boolean(row.needs_amount),
-    is_active: Boolean(row.is_active),
+    start_date: row.start_date ?? row.starts_on ?? null,
+    needs_amount: row.needs_amount === null || row.needs_amount === undefined ? amount === null : Boolean(row.needs_amount),
+    is_active: row.is_active === null || row.is_active === undefined ? true : Boolean(row.is_active),
+    archived_at: row.archived_at ?? null,
     source_table: sourceTable,
   };
 }
@@ -46,7 +53,17 @@ function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"])
 function isMissingRelation(caught: unknown) {
   const message = caught instanceof Error ? caught.message.toLowerCase() : "";
   const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
-  return message.includes("could not find the table") || message.includes("schema cache") || code === "42p01" || code === "pgrst205";
+  return message.includes("could not find the table") || code === "42p01" || code === "pgrst205";
+}
+
+function isMissingColumn(caught: unknown) {
+  const message = caught instanceof Error ? caught.message.toLowerCase() : "";
+  const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
+  return (
+    code === "42703" ||
+    code === "pgrst204" ||
+    (message.includes("column") && (message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find")))
+  );
 }
 
 async function loadReportBudgetItems(householdId: string) {
@@ -57,17 +74,17 @@ async function loadReportBudgetItems(householdId: string) {
     const { data, error } = await supabase
       .from(tableName)
       .select("*")
-      .eq("household_id", householdId)
-      .is("archived_at", null)
-      .order("type", { ascending: true })
-      .order("item_name", { ascending: true });
+      .eq("household_id", householdId);
 
     if (error) {
-      if (isMissingRelation(error)) continue;
+      if (isMissingRelation(error) || isMissingColumn(error)) continue;
       throw error;
     }
 
-    (data ?? []).map((row: any) => normalizeBudgetItem(row, tableName)).forEach((item) => loadedById.set(item.id, item));
+    (data ?? [])
+      .map((row: any) => normalizeBudgetItem(row, tableName))
+      .filter((item) => !item.archived_at)
+      .forEach((item) => loadedById.set(item.id, item));
   }
 
   return Array.from(loadedById.values());

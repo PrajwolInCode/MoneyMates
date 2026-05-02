@@ -48,7 +48,17 @@ type BudgetItemInput = {
   is_active: boolean;
 };
 
-type DataLoadIssue = "none" | "missing_env" | "no_household" | "rls_denied" | "schema_mismatch" | "load_failed";
+type DataLoadIssue =
+  | "none"
+  | "missing_env"
+  | "no_household"
+  | "missing_table"
+  | "missing_column"
+  | "rls_denied"
+  | "wrong_project"
+  | "network_error"
+  | "schema_mismatch"
+  | "load_failed";
 type RefreshOptions = {
   throwOnError?: boolean;
 };
@@ -127,12 +137,22 @@ function normalizeRecurring(row: any): RecurringPayment {
 }
 
 function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"]): BudgetItem {
+  const amount = row.amount === null || row.amount === undefined ? null : Number(row.amount);
   return {
     ...row,
-    amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+    id: row.id,
+    household_id: row.household_id,
+    item_name: row.item_name ?? row.name ?? "Budget item",
+    category: row.category ?? "Other",
+    type: row.type ?? row.item_type ?? "variable",
+    amount,
+    frequency: row.frequency ?? "monthly",
     quantity: Number(row.quantity ?? 1),
-    needs_amount: Boolean(row.needs_amount),
-    is_active: Boolean(row.is_active),
+    start_date: row.start_date ?? row.starts_on ?? null,
+    notes: row.notes ?? null,
+    needs_amount: row.needs_amount === null || row.needs_amount === undefined ? amount === null : Boolean(row.needs_amount),
+    is_active: row.is_active === null || row.is_active === undefined ? true : Boolean(row.is_active),
+    archived_at: row.archived_at ?? null,
     source_table: sourceTable,
   };
 }
@@ -155,17 +175,38 @@ function classifyLoadIssue(caught: unknown): DataLoadIssue {
   const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
 
   if (message.includes("row-level security") || message.includes("permission denied") || code === "42501") return "rls_denied";
-  if (message.includes("could not find the table") || message.includes("schema cache") || code === "42p01" || code === "pgrst205") {
-    return "schema_mismatch";
+  if (message.includes("could not find the table") || code === "42p01" || code === "pgrst205") return "missing_table";
+  if (message.includes("could not find") && message.includes("column")) return "missing_column";
+  if (message.includes("column") && (message.includes("does not exist") || message.includes("schema cache")) || code === "42703" || code === "pgrst204") {
+    return "missing_column";
   }
-  if (message.includes("failed to fetch") || message.includes("invalid api key") || message.includes("jwt")) return "missing_env";
+  if (message.includes("invalid api key") || message.includes("jwt") || code === "pgrst301") return "wrong_project";
+  if (message.includes("failed to fetch") || message.includes("networkerror") || message.includes("network request failed")) return "network_error";
+  if (message.includes("schema cache")) return "schema_mismatch";
   return "load_failed";
 }
 
 function isMissingRelation(caught: unknown) {
   const message = errorMessage(caught).toLowerCase();
   const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
-  return message.includes("could not find the table") || message.includes("schema cache") || code === "42p01" || code === "pgrst205";
+  return message.includes("could not find the table") || code === "42p01" || code === "pgrst205";
+}
+
+function isMissingColumn(caught: unknown) {
+  const message = errorMessage(caught).toLowerCase();
+  const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code ?? "").toLowerCase() : "";
+  return (
+    code === "42703" ||
+    code === "pgrst204" ||
+    (message.includes("column") && (message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find")))
+  );
+}
+
+function warningForOptionalTable(tableName: string, caught: unknown) {
+  if (isMissingRelation(caught)) return `${tableName} is not available in this Supabase schema.`;
+  if (isMissingColumn(caught)) return `${tableName} has missing columns in this Supabase schema.`;
+  if (classifyLoadIssue(caught) === "rls_denied") return `${tableName} is blocked by Supabase row level security.`;
+  return `${tableName} could not load.`;
 }
 
 function uniqueTables(tables: Array<BudgetItem["source_table"] | undefined>) {
@@ -176,29 +217,39 @@ async function loadBudgetItemsForHousehold(householdId: string) {
   const warnings: string[] = [];
   const loadedById = new Map<string, BudgetItem>();
   const tableNames = ["planned_budget_items", "budget_items"];
+  let hadBudgetItemError = false;
 
   for (const tableName of tableNames) {
     const { data, error: tableError } = await supabase
       .from(tableName)
       .select("*")
-      .eq("household_id", householdId)
-      .is("archived_at", null)
-      .order("is_active", { ascending: false })
-      .order("type", { ascending: true })
-      .order("item_name", { ascending: true });
+      .eq("household_id", householdId);
 
     if (tableError) {
-      if (isMissingRelation(tableError)) {
-        warnings.push(`${tableName} is not available in this Supabase schema.`);
-        continue;
-      }
-      throw tableError;
+      hadBudgetItemError = true;
+      warnings.push(warningForOptionalTable(tableName, tableError));
+      continue;
     }
 
-    (data ?? []).map((row: any) => normalizeBudgetItem(row, tableName as BudgetItem["source_table"])).forEach((item) => loadedById.set(item.id, item));
+    (data ?? [])
+      .map((row: any) => normalizeBudgetItem(row, tableName as BudgetItem["source_table"]))
+      .filter((item) => !item.archived_at)
+      .forEach((item) => loadedById.set(item.id, item));
   }
 
-  return { data: Array.from(loadedById.values()), warnings };
+  const data = Array.from(loadedById.values()).sort((first, second) => {
+    const activeSort = Number(second.is_active) - Number(first.is_active);
+    if (activeSort) return activeSort;
+    const typeSort = first.type.localeCompare(second.type);
+    if (typeSort) return typeSort;
+    return first.item_name.localeCompare(second.item_name);
+  });
+
+  if (hadBudgetItemError) {
+    warnings.unshift("Budget items could not load. Your expenses and household data are still safe.");
+  }
+
+  return { data, warnings: Array.from(new Set(warnings)) };
 }
 
 async function loadOptionalNotifications(householdId: string, userId: string) {
@@ -776,13 +827,26 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         let lastArchiveError: unknown = null;
 
         for (const tableName of writeTables) {
-          const { data: updatedRow, error: archiveError } = await supabase
+          const archiveRow = { is_active: false, archived_at: new Date().toISOString() };
+          let { data: updatedRow, error: archiveError } = await supabase
             .from(tableName)
-            .update({ is_active: false, archived_at: new Date().toISOString() })
+            .update(archiveRow)
             .eq("id", id)
             .eq("household_id", household.id)
             .select("id")
             .maybeSingle();
+
+          if (archiveError && isMissingColumn(archiveError)) {
+            const fallback = await supabase
+              .from(tableName)
+              .update({ is_active: false })
+              .eq("id", id)
+              .eq("household_id", household.id)
+              .select("id")
+              .maybeSingle();
+            updatedRow = fallback.data;
+            archiveError = fallback.error;
+          }
 
           if (archiveError) {
             if (isMissingRelation(archiveError)) {

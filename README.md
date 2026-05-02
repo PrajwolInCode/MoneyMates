@@ -110,11 +110,14 @@ Do not put a Supabase service role key in the frontend.
 For the generic budget item UI, run the migrations through:
 
 ```text
+supabase/migrations/20260502_fix_planned_budget_items_schema.sql
 supabase/migrations/202605030002_generic_budget_items_notifications_push.sql
 supabase/migrations/202605030003_rename_budget_items_to_planned_budget_items.sql
 ```
 
-The frontend reads and writes planned budget items through `planned_budget_items`.
+The `20260502_fix_planned_budget_items_schema.sql` migration is an idempotent production safety fix for older Supabase projects where `planned_budget_items` exists but is missing columns such as `archived_at`. It only creates/adds columns, policies, and indexes; it does not delete, reset, seed, or overwrite household data.
+
+The frontend reads and writes planned budget items through `planned_budget_items`. If optional budget item fields are temporarily missing, expenses and household data should still load while the Budget page shows a warning.
 
 ### Auth Email Limits
 

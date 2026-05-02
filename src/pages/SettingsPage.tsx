@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Bell, Copy, LogOut, Save } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { FixAppCacheButton } from "../components/FixAppCacheButton";
 import { FormField } from "../components/FormField";
 import { inputClass } from "../components/inputs";
 import { PageHeader } from "../components/PageHeader";
@@ -196,6 +197,13 @@ export function SettingsPage() {
           <h2 className="text-xl font-bold tracking-normal text-ink">Account/Data</h2>
           <p className="mt-2 text-sm leading-6 text-ink/65">Reload your session, household membership, and household data from Supabase.</p>
           <RefreshDataButton className="mt-4 w-full sm:w-auto" />
+          <div className="mt-5 rounded-2xl bg-sage/50 p-4">
+            <p className="font-semibold text-ink">Fix app loading issue</p>
+            <p className="mt-1 text-sm leading-6 text-ink/65">
+              Use this if MoneyMates opens but shows a blank page or old version. This only clears local app cache on this device. Your Supabase data is safe.
+            </p>
+            <FixAppCacheButton />
+          </div>
         </Card>
 
         {user ? (

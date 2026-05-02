@@ -5,8 +5,18 @@ begin
   end if;
 end $$;
 
-alter index if exists budget_items_household_active_idx rename to planned_budget_items_household_active_idx;
-alter index if exists budget_items_created_by_idx rename to planned_budget_items_created_by_idx;
+do $$
+begin
+  if to_regclass('public.budget_items_household_active_idx') is not null
+     and to_regclass('public.planned_budget_items_household_active_idx') is null then
+    alter index public.budget_items_household_active_idx rename to planned_budget_items_household_active_idx;
+  end if;
+
+  if to_regclass('public.budget_items_created_by_idx') is not null
+     and to_regclass('public.planned_budget_items_created_by_idx') is null then
+    alter index public.budget_items_created_by_idx rename to planned_budget_items_created_by_idx;
+  end if;
+end $$;
 
 do $$
 begin

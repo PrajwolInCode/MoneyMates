@@ -201,7 +201,7 @@ function formFromItem(item: BudgetItem): BudgetFormState {
 }
 
 export function BudgetPage() {
-  const { budgetItems, budgetMonth, budgetLimits, monthStart, saveBudgetItem, archiveBudgetItem } = useHousehold();
+  const { budgetItems, budgetMonth, budgetLimits, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BudgetFormState>(EMPTY_FORM);
@@ -226,6 +226,9 @@ export function BudgetPage() {
   const remaining = monthlyIncome - plannedExpenses;
   const needsAmountCount = activeItems.filter((item) => item.is_active && budgetItemNeedsAmount(item)).length;
   const showingLegacyBudget = !activeItems.length && (legacyIncome > 0 || legacyPlannedExpenses > 0);
+  const budgetItemsLoadWarning = dataWarnings.find((warning) =>
+    warning.includes("Budget items could not load. Your expenses and household data are still safe."),
+  );
 
   const groupedItems = useMemo(() => {
     return activeItems.reduce<Record<BudgetGroupKey, BudgetItem[]>>(
@@ -377,6 +380,12 @@ export function BudgetPage() {
       {error ? (
         <div className="mb-4">
           <WarningBanner tone="strong">{error}</WarningBanner>
+        </div>
+      ) : null}
+
+      {budgetItemsLoadWarning ? (
+        <div className="mb-4">
+          <WarningBanner tone="strong">Budget items could not load. Your expenses and household data are still safe.</WarningBanner>
         </div>
       ) : null}
 
