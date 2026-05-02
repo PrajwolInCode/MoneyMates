@@ -80,10 +80,13 @@ export function DashboardPage() {
   const trendRows = useMemo(() => dailyTrend(expenses), [expenses]);
   const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length;
   const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
-  const currentUserItems = useMemo(() => activeBudgetItems.filter((item) => item.created_by === user?.id), [activeBudgetItems, user?.id]);
+  const currentUserItems = useMemo(
+    () => activeBudgetItems.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
+    [activeBudgetItems, user?.id],
+  );
   const otherMembers = useMemo(() => members.filter((member) => member.user_id !== user?.id), [members, user?.id]);
   const otherMembersWithData = useMemo(
-    () => otherMembers.filter((member) => activeBudgetItems.some((item) => item.created_by === member.user_id)),
+    () => otherMembers.filter((member) => activeBudgetItems.some((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id)),
     [activeBudgetItems, otherMembers],
   );
   const memberContributorCount = otherMembersWithData.length + (currentUserItems.length ? 1 : 0);

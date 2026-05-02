@@ -31,7 +31,8 @@ type BudgetDraft = {
   amount: string;
   frequency: BudgetFrequency;
   budgetKind: BudgetItemKind;
-  itemScope: BudgetItemScope;
+  scope: BudgetItemScope;
+  payerUserId: string;
   notes: string;
 };
 
@@ -85,7 +86,8 @@ function draftFromTemplate(template: BudgetOnboardingTemplate): BudgetDraft {
     amount: "",
     frequency: template.frequency,
     budgetKind: template.budgetKind,
-    itemScope: template.itemScope,
+    scope: template.scope,
+    payerUserId: "",
     notes: "",
   };
 }
@@ -98,7 +100,8 @@ function draftFromSuggestion(suggestion: OnboardingSuggestion): BudgetDraft {
     amount: "",
     frequency: suggestion.frequency,
     budgetKind: suggestion.budgetKind,
-    itemScope: suggestion.itemScope,
+    scope: suggestion.scope,
+    payerUserId: "",
     notes: suggestion.reason,
   };
 }
@@ -122,17 +125,24 @@ export function OnboardingPage() {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
 
   const currentUserItems = useMemo(
-    () => budgetItems.filter((item) => item.created_by === user?.id && !item.archived_at),
+    () => budgetItems.filter((item) => (item.owner_user_id === user?.id || item.created_by === user?.id) && !item.archived_at),
     [budgetItems, user?.id],
   );
   const currentMember = members.find((member) => member.user_id === user?.id);
   const otherMembers = members.filter((member) => member.user_id !== user?.id);
-  const otherMembersWithData = otherMembers.filter((member) => budgetItems.some((item) => item.created_by === member.user_id && !item.archived_at));
+  const otherMembersWithData = otherMembers.filter((member) =>
+    budgetItems.some((item) => (item.owner_user_id === member.user_id || item.created_by === member.user_id) && !item.archived_at),
+  );
   const monthlyIncome = totalBudgetItemMonthlyIncome(currentUserItems);
   const monthlyPlanned = totalBudgetItemMonthlyPlannedExpenses(currentUserItems);
   const showInviteStep = Boolean(household && isOwner && !inviteDismissed && members.length <= 1 && currentUserItems.length === 0);
   const completedOwnPart = Boolean(currentMember?.budget_setup_completed_at || currentUserItems.length > 0);
   const userLabel = profile?.display_name || user?.email || "you";
+  const memberOptions = members.map((member, index) => ({
+    id: member.user_id,
+    label: member.profile?.display_name?.trim() || member.profile?.email || `Member ${index + 1}`,
+  }));
+  const defaultPayerUserId = draft.payerUserId || user?.id || "";
 
   if (loading && !household) return <LoadingState label="Opening setup" />;
 
@@ -163,7 +173,7 @@ export function OnboardingPage() {
       category: suggestion.category,
       type: suggestion.type,
       frequency: suggestion.frequency,
-      itemScope: suggestion.itemScope,
+      scope: suggestion.scope,
     });
     setDraft(draftFromSuggestion(suggestion));
     setNotice("Suggestion loaded. Add an amount if you know it, or leave it blank for later.");
@@ -251,13 +261,16 @@ export function OnboardingPage() {
     setLoadingAction("save");
     try {
       await saveBudgetItem({
+        owner_user_id: user?.id,
+        payer_user_id: defaultPayerUserId || null,
+        scope: draft.scope,
         item_name: itemName,
         category,
         type: draft.type,
         amount: parsedAmount,
         frequency: draft.frequency,
         quantity: 1,
-        item_scope: draft.itemScope,
+        item_scope: draft.scope,
         budget_kind: draft.budgetKind,
         start_date: null,
         notes: draft.notes.trim() || null,
@@ -536,13 +549,13 @@ export function OnboardingPage() {
                     <FormField label="Belongs to">
                       <select
                         className={inputClass}
-                        value={draft.itemScope}
+                        value={draft.scope}
                         onChange={(event) => {
-                          const itemScope = event.target.value as BudgetItemScope;
+                          const scope = event.target.value as BudgetItemScope;
                           setDraft((current) => ({
                             ...current,
-                            itemScope,
-                            budgetKind: itemScope === "shared" ? "shared_expense" : current.budgetKind === "shared_expense" ? "regular_expense" : current.budgetKind,
+                            scope,
+                            budgetKind: scope === "shared" ? "shared_expense" : current.budgetKind === "shared_expense" ? "regular_expense" : current.budgetKind,
                           }));
                         }}
                       >
@@ -551,6 +564,21 @@ export function OnboardingPage() {
                       </select>
                     </FormField>
                   </div>
+
+                  <FormField label="Usually paid by">
+                    <select
+                      className={inputClass}
+                      value={defaultPayerUserId}
+                      onChange={(event) => setDraft((current) => ({ ...current, payerUserId: event.target.value }))}
+                    >
+                      <option value="">No usual payer yet</option>
+                      {memberOptions.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
 
                   <FormField label="Notes">
                     <textarea
@@ -644,7 +672,7 @@ export function OnboardingPage() {
                           <div>
                             <p className="font-semibold text-ink">{item.item_name}</p>
                             <p className="mt-1 text-xs text-ink/60">
-                              {item.category} - {item.item_scope === "shared" ? "Shared household" : "My part"}
+                              {item.category} - {item.scope === "shared" ? "Shared household" : "My part"}
                             </p>
                           </div>
                           <p className="shrink-0 text-sm font-bold text-ink">

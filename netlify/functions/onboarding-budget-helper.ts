@@ -15,7 +15,7 @@ const responseSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["itemName", "category", "type", "frequency", "budgetKind", "itemScope", "reason"],
+        required: ["itemName", "category", "type", "frequency", "budgetKind", "scope", "reason"],
         properties: {
           itemName: { type: "string" },
           category: { type: "string" },
@@ -34,7 +34,7 @@ const responseSchema = {
               "info",
             ],
           },
-          itemScope: { enum: ["personal", "shared"] },
+          scope: { enum: ["personal", "shared"] },
           reason: { type: "string" },
         },
       },
@@ -69,7 +69,7 @@ function fallbackSuggestions(payload: any) {
       type: "income",
       frequency: "monthly",
       budgetKind: "income",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Income lets MoneyMates calculate what is left after bills, spending, and goals.",
     });
   }
@@ -81,7 +81,7 @@ function fallbackSuggestions(payload: any) {
       type: "fixed",
       frequency: "yearly",
       budgetKind: "bill",
-      itemScope: "personal",
+      scope: "personal",
       reason: "You added a car-related item. Rego is easy to forget because it is not usually monthly.",
     });
   }
@@ -93,7 +93,7 @@ function fallbackSuggestions(payload: any) {
       type: "fixed",
       frequency: "monthly",
       budgetKind: "bill",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Car costs often include insurance as well as repayments or fuel.",
     });
   }
@@ -105,7 +105,7 @@ function fallbackSuggestions(payload: any) {
       type: "fixed",
       frequency: "monthly",
       budgetKind: "shared_expense",
-      itemScope: "shared",
+      scope: "shared",
       reason: "Housing costs often sit beside utilities or internet in the household plan.",
     });
   }
@@ -117,7 +117,7 @@ function fallbackSuggestions(payload: any) {
       type: "saving",
       frequency: "monthly",
       budgetKind: "savings_goal",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Once income is in the plan, a savings target helps turn the plan into a habit.",
     });
   }

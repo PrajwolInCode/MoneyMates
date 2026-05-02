@@ -10,6 +10,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RefreshDataButton } from "../components/RefreshDataButton";
 import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
+import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
 import {
   budgetItemNeedsAmount,
@@ -21,7 +22,7 @@ import {
 } from "../lib/budget";
 import { formatMonthLabel } from "../lib/date";
 import { currency, personName } from "../lib/format";
-import type { BudgetFrequency, BudgetItem, BudgetItemType } from "../types";
+import type { BudgetFrequency, BudgetItem, BudgetItemScope, BudgetItemType } from "../types";
 
 type BudgetFormState = {
   itemName: string;
@@ -30,6 +31,9 @@ type BudgetFormState = {
   amount: string;
   frequency: BudgetFrequency;
   quantity: string;
+  ownerUserId: string;
+  payerUserId: string;
+  scope: BudgetItemScope;
   startDate: string;
   notes: string;
   needsAmount: boolean;
@@ -48,6 +52,9 @@ const EMPTY_FORM: BudgetFormState = {
   amount: "",
   frequency: "monthly",
   quantity: "1",
+  ownerUserId: "",
+  payerUserId: "",
+  scope: "personal",
   startDate: "",
   notes: "",
   needsAmount: false,
@@ -158,6 +165,13 @@ function monthlyLabel(item: BudgetItem) {
   return `${currency(monthlyAmount)}/month`;
 }
 
+function countedLabel(item: BudgetItem) {
+  if (!item.is_active) return "Not counted - inactive";
+  if (item.type === "info") return "Not counted - info only";
+  if (budgetItemNeedsAmount(item)) return "Not counted - needs amount";
+  return "Counted in household totals";
+}
+
 function amountDetail(item: BudgetItem) {
   if (budgetItemNeedsAmount(item)) return "Amount missing";
   const quantityText = Number(item.quantity) === 1 ? "" : ` x ${Number(item.quantity).toLocaleString()}`;
@@ -172,6 +186,9 @@ function formFromItem(item: BudgetItem): BudgetFormState {
     amount: item.amount === null ? "" : String(Number(item.amount)),
     frequency: item.frequency,
     quantity: String(Number(item.quantity || 1)),
+    ownerUserId: item.owner_user_id || item.created_by,
+    payerUserId: item.payer_user_id ?? "",
+    scope: item.scope,
     startDate: item.start_date ?? "",
     notes: item.notes ?? "",
     needsAmount: budgetItemNeedsAmount(item),
@@ -192,11 +209,13 @@ function templateForm(template: BudgetTemplate, monthStart: string): BudgetFormS
     frequency: template.frequency,
     amount: "",
     startDate: monthStart,
+    scope: template.category === "Food" || template.category === "Utilities" || template.itemName === "Mortgage / Rent" ? "shared" : "personal",
     needsAmount: Boolean(template.needsAmount),
   };
 }
 
 export function BudgetPage() {
+  const { user } = useAuth();
   const { members, budgetItems, budgetMonth, budgetLimits, expenses, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -213,15 +232,21 @@ export function BudgetPage() {
   }, [toast]);
 
   const activeItems = useMemo(() => budgetItems.filter((item) => !item.archived_at), [budgetItems]);
+  const defaultMemberId = user?.id ?? members[0]?.user_id ?? "";
+  const memberOptions = useMemo(
+    () =>
+      members.map((member, index) => ({
+        id: member.user_id,
+        label: personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
+      })),
+    [members],
+  );
   const memberNames = useMemo(
     () =>
       new Map(
-        members.map((member, index) => [
-          member.user_id,
-          personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
-        ]),
+        memberOptions.map((member) => [member.id, member.label]),
       ),
-    [members],
+    [memberOptions],
   );
   const hasBudgetItems = activeItems.length > 0;
   const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
@@ -248,6 +273,14 @@ export function BudgetPage() {
       { income: [], fixed: [], debt: [], variable: [], saving: [], needs_amount: [] },
     );
   }, [activeItems]);
+
+  const itemsByScope = useMemo(
+    () => ({
+      personal: activeItems.filter((item) => item.scope === "personal"),
+      shared: activeItems.filter((item) => item.scope === "shared"),
+    }),
+    [activeItems],
+  );
 
   const sectionTotals = useMemo(() => {
     return GROUPS.reduce<Record<BudgetGroupKey, number>>(
@@ -370,7 +403,12 @@ export function BudgetPage() {
 
   const openForm = (template?: BudgetTemplate) => {
     setEditingId(null);
-    setForm(template ? templateForm(template, monthStart) : { ...EMPTY_FORM, startDate: monthStart });
+    const nextForm = template ? templateForm(template, monthStart) : { ...EMPTY_FORM, startDate: monthStart };
+    setForm({
+      ...nextForm,
+      ownerUserId: defaultMemberId,
+      payerUserId: defaultMemberId,
+    });
     setError(null);
     setShowForm(true);
   };
@@ -390,13 +428,14 @@ export function BudgetPage() {
       type: template.type,
       frequency: template.frequency,
       amount: "",
+      scope: template.category === "Food" || template.category === "Utilities" || template.itemName === "Mortgage / Rent" ? "shared" : current.scope,
       needsAmount: Boolean(template.needsAmount),
     }));
   };
 
   const cancelForm = () => {
     setEditingId(null);
-    setForm({ ...EMPTY_FORM, startDate: monthStart });
+    setForm({ ...EMPTY_FORM, startDate: monthStart, ownerUserId: defaultMemberId, payerUserId: defaultMemberId });
     setError(null);
     setShowForm(false);
   };
@@ -418,6 +457,10 @@ export function BudgetPage() {
       setError("Enter a category.");
       return;
     }
+    if (!form.ownerUserId) {
+      setError("Choose who this item belongs to.");
+      return;
+    }
     if (parsedAmount !== null && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) {
       setError("Amount must be zero or greater, or left empty.");
       return;
@@ -431,6 +474,9 @@ export function BudgetPage() {
     try {
       await saveBudgetItem(
         {
+          owner_user_id: form.ownerUserId,
+          payer_user_id: form.payerUserId || null,
+          scope: form.scope,
           item_name: itemName,
           category,
           type: form.type,
@@ -441,6 +487,7 @@ export function BudgetPage() {
           notes: form.notes.trim() || null,
           needs_amount: form.needsAmount || parsedAmount === null,
           is_active: form.isActive,
+          item_scope: form.scope,
         },
         editingId ?? undefined,
       );
@@ -653,7 +700,79 @@ export function BudgetPage() {
       <section className="mt-5">
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-normal text-ink">Your monthly plan</h2>
+            <h2 className="text-2xl font-bold tracking-normal text-ink">Personal and shared items</h2>
+            <p className="text-sm text-ink/60">Ownership, payer, monthly equivalent, and counted status for the household plan.</p>
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[
+            {
+              key: "personal" as const,
+              title: "Personal items",
+              description: "Income, bills, debts, goals, and expenses that mainly belong to one member.",
+              items: itemsByScope.personal,
+            },
+            {
+              key: "shared" as const,
+              title: "Shared items",
+              description: "Household expenses and goals shared by the household.",
+              items: itemsByScope.shared,
+            },
+          ].map((section) => (
+            <Card key={section.key}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-moss">{section.key === "personal" ? "Personal" : "Shared"}</p>
+                  <h3 className="mt-1 text-xl font-bold tracking-normal text-ink">{section.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-ink/60">{section.description}</p>
+                </div>
+                <p className="text-sm font-bold text-ink">
+                  {section.items.length} item{section.items.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {section.items.length ? (
+                  section.items.slice(0, 8).map((item) => (
+                    <div key={item.id} className="rounded-xl border border-sage bg-mist px-3 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-ink">{item.item_name}</p>
+                          <p className="mt-1 text-sm text-ink/60">
+                            {item.category} - {monthlyLabel(item)}
+                          </p>
+                          <div className="mt-2 grid gap-1 text-xs font-medium text-ink/55">
+                            <span>Owner: {memberNames.get(item.owner_user_id) ?? "Household member"}</span>
+                            <span>Usually paid by: {item.payer_user_id ? memberNames.get(item.payer_user_id) ?? "Household member" : "Not set"}</span>
+                            <span>Added by: {memberNames.get(item.created_by) ?? "Household member"}</span>
+                            <span>{countedLabel(item)}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-xl border border-sage bg-white p-2 text-ink/70 hover:border-moss"
+                          aria-label={`Edit ${item.item_name}`}
+                          onClick={() => startEdit(item)}
+                        >
+                          <Edit3 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-xl border border-dashed border-sage bg-mist px-3 py-4 text-sm text-ink/60">
+                    No {section.key} budget items yet.
+                  </p>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-normal text-ink">Monthly plan by type</h2>
             <p className="text-sm text-ink/60">Income, bills, spending, savings, and items that still need an amount.</p>
           </div>
           <p className="text-sm font-semibold text-moss">
@@ -684,16 +803,21 @@ export function BudgetPage() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="font-semibold text-ink">{item.item_name}</p>
+                              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink/70">
+                                {item.scope === "shared" ? "Shared" : "Personal"}
+                              </span>
                               <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink/70">{labelForType(item.type)}</span>
                               {!item.is_active ? <span className="rounded-full bg-coral/15 px-2 py-0.5 text-xs font-semibold text-coral">Inactive</span> : null}
                             </div>
                             <p className="mt-1 text-sm text-ink/60">
                               {item.category} - {amountDetail(item)}
                             </p>
-                            <p className="mt-1 text-xs font-medium text-ink/50">
-                              Added by {memberNames.get(item.created_by) ?? "Household member"} -{" "}
-                              {item.item_scope === "shared" ? "Shared household" : "Personal"}
-                            </p>
+                            <div className="mt-2 grid gap-1 text-xs font-medium text-ink/55 sm:grid-cols-2">
+                              <span>Owner: {memberNames.get(item.owner_user_id) ?? "Household member"}</span>
+                              <span>Usually paid by: {item.payer_user_id ? memberNames.get(item.payer_user_id) ?? "Household member" : "Not set"}</span>
+                              <span>Added by: {memberNames.get(item.created_by) ?? "Household member"}</span>
+                              <span>{countedLabel(item)}</span>
+                            </div>
                             {item.notes ? <p className="mt-2 rounded-xl bg-white px-3 py-2 text-sm leading-6 text-ink/70">{item.notes}</p> : null}
                           </div>
                           <div className="flex shrink-0 gap-1">
@@ -817,6 +941,71 @@ export function BudgetPage() {
 
                 <div>
                   <p className="text-sm font-semibold text-moss">Step 3</p>
+                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">Who owns or pays it?</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <FormField label="Personal or shared">
+                      <select
+                        className={inputClass}
+                        value={form.scope}
+                        onChange={(event) => {
+                          const scope = event.target.value as BudgetItemScope;
+                          setForm((current) => ({
+                            ...current,
+                            scope,
+                            payerUserId: current.payerUserId || current.ownerUserId || defaultMemberId,
+                          }));
+                        }}
+                      >
+                        <option value="personal">Personal item</option>
+                        <option value="shared">Shared household item</option>
+                      </select>
+                    </FormField>
+
+                    <FormField label="Owner / entered for">
+                      <select
+                        className={inputClass}
+                        value={form.ownerUserId}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            ownerUserId: event.target.value,
+                            payerUserId: current.payerUserId || event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Choose member</option>
+                        {memberOptions.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.label}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+
+                    <FormField label="Usually paid by">
+                      <select
+                        className={inputClass}
+                        value={form.payerUserId}
+                        onChange={(event) => setForm((current) => ({ ...current, payerUserId: event.target.value }))}
+                      >
+                        <option value="">No usual payer yet</option>
+                        {memberOptions.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.label}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+
+                    <div className="rounded-xl border border-sage bg-mist px-3 py-3 text-sm leading-6 text-ink/65">
+                      <span className="font-semibold text-ink">Counted status: </span>
+                      {form.isActive && !form.needsAmount && form.type !== "info" ? "Counted when an amount is set." : "Not counted until active, counted type, and amount are set."}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-moss">Step 4</p>
                   <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">Amount and frequency</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <FormField label="Amount">
@@ -889,7 +1078,7 @@ export function BudgetPage() {
                 </div>
 
                 <div>
-                  <p className="text-sm font-semibold text-moss">Step 4</p>
+                  <p className="text-sm font-semibold text-moss">Step 5</p>
                   <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">Optional details</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <FormField label="Category">

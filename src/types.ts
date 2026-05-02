@@ -77,6 +77,9 @@ export type BudgetItemKind =
 export type BudgetItem = {
   id: string;
   household_id: string;
+  owner_user_id: string;
+  payer_user_id?: string | null;
+  scope: BudgetItemScope;
   item_name: string;
   category: string;
   type: BudgetItemType;

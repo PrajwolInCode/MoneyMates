@@ -10,7 +10,7 @@ export type BudgetOnboardingTemplate = {
   category: string;
   type: BudgetItemType;
   frequency: BudgetFrequency;
-  itemScope: BudgetItemScope;
+  scope: BudgetItemScope;
 };
 
 export type OnboardingSuggestion = {
@@ -19,7 +19,7 @@ export type OnboardingSuggestion = {
   type: BudgetItemType;
   frequency: BudgetFrequency;
   budgetKind: BudgetItemKind;
-  itemScope: BudgetItemScope;
+  scope: BudgetItemScope;
   reason: string;
 };
 
@@ -29,7 +29,7 @@ export type OnboardingHelperPayload = {
     category: string;
     type: BudgetItemType;
     budgetKind: BudgetItemKind;
-    itemScope: BudgetItemScope;
+    scope: BudgetItemScope;
   }>;
 };
 
@@ -44,7 +44,7 @@ export const ONBOARDING_TEMPLATES: BudgetOnboardingTemplate[] = [
     category: "Income",
     type: "income",
     frequency: "monthly",
-    itemScope: "personal",
+    scope: "personal",
   },
   {
     budgetKind: "direct_debit",
@@ -56,7 +56,7 @@ export const ONBOARDING_TEMPLATES: BudgetOnboardingTemplate[] = [
     category: "Direct debits",
     type: "fixed",
     frequency: "monthly",
-    itemScope: "personal",
+    scope: "personal",
   },
   {
     budgetKind: "bill",
@@ -68,7 +68,7 @@ export const ONBOARDING_TEMPLATES: BudgetOnboardingTemplate[] = [
     category: "Bills",
     type: "fixed",
     frequency: "monthly",
-    itemScope: "personal",
+    scope: "personal",
   },
   {
     budgetKind: "debt_repayment",
@@ -80,7 +80,7 @@ export const ONBOARDING_TEMPLATES: BudgetOnboardingTemplate[] = [
     category: "Debt",
     type: "debt",
     frequency: "monthly",
-    itemScope: "personal",
+    scope: "personal",
   },
   {
     budgetKind: "savings_goal",
@@ -92,7 +92,7 @@ export const ONBOARDING_TEMPLATES: BudgetOnboardingTemplate[] = [
     category: "Savings",
     type: "saving",
     frequency: "monthly",
-    itemScope: "personal",
+    scope: "personal",
   },
   {
     budgetKind: "regular_expense",
@@ -104,7 +104,7 @@ export const ONBOARDING_TEMPLATES: BudgetOnboardingTemplate[] = [
     category: "Personal spending",
     type: "variable",
     frequency: "monthly",
-    itemScope: "personal",
+    scope: "personal",
   },
 ];
 
@@ -118,7 +118,7 @@ export const SHARED_EXPENSE_TEMPLATE: BudgetOnboardingTemplate = {
   category: "Shared household",
   type: "fixed",
   frequency: "monthly",
-  itemScope: "shared",
+  scope: "shared",
 };
 
 const SUGGESTION_RULES: Array<{
@@ -135,7 +135,7 @@ const SUGGESTION_RULES: Array<{
       type: "fixed",
       frequency: "yearly",
       budgetKind: "bill",
-      itemScope: "personal",
+      scope: "personal",
       reason: "You added a car-related item. Rego is easy to forget because it is not usually monthly.",
     },
   },
@@ -148,7 +148,7 @@ const SUGGESTION_RULES: Array<{
       type: "fixed",
       frequency: "monthly",
       budgetKind: "bill",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Car costs often include insurance as well as repayments or fuel.",
     },
   },
@@ -161,7 +161,7 @@ const SUGGESTION_RULES: Array<{
       type: "variable",
       frequency: "monthly",
       budgetKind: "regular_expense",
-      itemScope: "personal",
+      scope: "personal",
       reason: "A small monthly allowance can make servicing feel less sudden.",
     },
   },
@@ -174,7 +174,7 @@ const SUGGESTION_RULES: Array<{
       type: "saving",
       frequency: "monthly",
       budgetKind: "savings_goal",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Once income is in the plan, a savings target helps turn the plan into a habit.",
     },
   },
@@ -187,7 +187,7 @@ const SUGGESTION_RULES: Array<{
       type: "fixed",
       frequency: "monthly",
       budgetKind: "shared_expense",
-      itemScope: "shared",
+      scope: "shared",
       reason: "Housing costs often sit beside utilities or internet in the household plan.",
     },
   },
@@ -200,7 +200,7 @@ const SUGGESTION_RULES: Array<{
       type: "fixed",
       frequency: "monthly",
       budgetKind: "direct_debit",
-      itemScope: "personal",
+      scope: "personal",
       reason: "A quick direct debit check can catch small payments that quietly add up.",
     },
   },
@@ -213,7 +213,7 @@ const SUGGESTION_RULES: Array<{
       type: "variable",
       frequency: "weekly",
       budgetKind: "regular_expense",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Flexible spending is easier to adjust when it has a simple allowance.",
     },
   },
@@ -244,7 +244,7 @@ export function buildOnboardingHelperPayload(items: BudgetItem[]): OnboardingHel
       category: item.category,
       type: item.type,
       budgetKind: item.budget_kind,
-      itemScope: item.item_scope,
+      scope: item.scope,
     })),
   };
 }
@@ -260,7 +260,7 @@ export function suggestMissingBudgetItems(payload: OnboardingHelperPayload): Onb
       type: "income",
       frequency: "monthly",
       budgetKind: "income",
-      itemScope: "personal",
+      scope: "personal",
       reason: "Income lets MoneyMates calculate what is left after bills, spending, and goals.",
     });
   }

@@ -38,6 +38,9 @@ type BudgetLimitInput = {
 };
 
 type BudgetItemInput = {
+  owner_user_id?: string;
+  payer_user_id?: string | null;
+  scope?: BudgetItemScope;
   item_name: string;
   category: string;
   type: BudgetItemType;
@@ -181,18 +184,21 @@ function normalizeBudgetItem(row: any, sourceTable?: BudgetItem["source_table"])
     item_name: row.item_name ?? row.name ?? "Budget item",
     category: row.category ?? "Other",
     type,
-    amount,
-    frequency: row.frequency ?? "monthly",
-    quantity: Number(row.quantity ?? 1),
+  amount,
+  frequency: row.frequency ?? "monthly",
+  quantity: Number(row.quantity ?? 1),
     start_date: row.start_date ?? row.starts_on ?? null,
     notes: row.notes ?? null,
     needs_amount: row.needs_amount === null || row.needs_amount === undefined ? amount === null : Boolean(row.needs_amount),
     is_active: row.is_active === null || row.is_active === undefined ? true : Boolean(row.is_active),
-    item_scope: normalizeBudgetItemScope(row.item_scope),
-    budget_kind: normalizeBudgetItemKind(row.budget_kind, type),
-    archived_at: row.archived_at ?? null,
-    created_by: row.created_by ?? "",
-    source_table: sourceTable,
+  scope: normalizeBudgetItemScope(row.scope ?? row.item_scope),
+  item_scope: normalizeBudgetItemScope(row.scope ?? row.item_scope),
+  budget_kind: normalizeBudgetItemKind(row.budget_kind, type),
+  archived_at: row.archived_at ?? null,
+  created_by: row.created_by ?? "",
+  owner_user_id: row.owner_user_id ?? row.created_by ?? "",
+  payer_user_id: row.payer_user_id === undefined ? row.created_by ?? null : row.payer_user_id,
+  source_table: sourceTable,
   };
 }
 
@@ -800,9 +806,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         const amount = input.amount === null || input.amount === undefined ? null : input.amount;
         const needsAmount = input.needs_amount || amount === null;
         const existingItem = id ? budgetItems.find((item) => item.id === id) : null;
-        const itemScope = input.item_scope ?? existingItem?.item_scope ?? "personal";
-        const budgetKind = input.budget_kind ?? existingItem?.budget_kind ?? (itemScope === "shared" ? "shared_expense" : defaultBudgetKind(input.type));
-        const baseRow = {
+        const scope = input.scope ?? input.item_scope ?? existingItem?.scope ?? existingItem?.item_scope ?? "personal";
+        const budgetKind = input.budget_kind ?? existingItem?.budget_kind ?? (scope === "shared" ? "shared_expense" : defaultBudgetKind(input.type));
+        const ownerUserId = input.owner_user_id || existingItem?.owner_user_id || existingItem?.created_by || user.id;
+        const payerUserId = input.payer_user_id === undefined ? existingItem?.payer_user_id ?? ownerUserId : input.payer_user_id || null;
+        const coreRow = {
           household_id: household.id,
           item_name: input.item_name,
           category: input.category,
@@ -815,10 +823,16 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           needs_amount: needsAmount,
           is_active: input.is_active,
         };
-        const row = {
-          ...baseRow,
-          item_scope: itemScope,
+        const compatibilityRow = {
+          ...coreRow,
+          item_scope: scope,
           budget_kind: budgetKind,
+        };
+        const row = {
+          ...compatibilityRow,
+          owner_user_id: ownerUserId,
+          payer_user_id: payerUserId,
+          scope,
         };
 
         const writeTables = uniqueTables([existingItem?.source_table, "planned_budget_items", "budget_items"]);
@@ -836,9 +850,21 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
               .maybeSingle();
 
             if (updateError && isMissingColumn(updateError)) {
+              const compatibilityFallback = await supabase
+                .from(tableName)
+                .update(compatibilityRow)
+                .eq("id", id)
+                .eq("household_id", household.id)
+                .select("id")
+                .maybeSingle();
+              updatedRow = compatibilityFallback.data;
+              updateError = compatibilityFallback.error;
+            }
+
+            if (updateError && isMissingColumn(updateError)) {
               const fallback = await supabase
                 .from(tableName)
-                .update(baseRow)
+                .update(coreRow)
                 .eq("id", id)
                 .eq("household_id", household.id)
                 .select("id")
@@ -861,7 +887,11 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
 
           let { error: insertError } = await supabase.from(tableName).insert({ ...row, created_by: user.id }).select("id").single();
           if (insertError && isMissingColumn(insertError)) {
-            const fallback = await supabase.from(tableName).insert({ ...baseRow, created_by: user.id }).select("id").single();
+            const compatibilityFallback = await supabase.from(tableName).insert({ ...compatibilityRow, created_by: user.id }).select("id").single();
+            insertError = compatibilityFallback.error;
+          }
+          if (insertError && isMissingColumn(insertError)) {
+            const fallback = await supabase.from(tableName).insert({ ...coreRow, created_by: user.id }).select("id").single();
             insertError = fallback.error;
           }
           if (insertError) {
