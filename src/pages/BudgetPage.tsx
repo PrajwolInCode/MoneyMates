@@ -42,6 +42,13 @@ type BudgetTemplate = Pick<BudgetFormState, "itemName" | "category" | "type" | "
   needsAmount?: boolean;
 };
 
+type AddChoice = {
+  label: string;
+  type: BudgetItemType;
+  scope: BudgetItemScope;
+  category: string;
+};
+
 const EMPTY_FORM: BudgetFormState = {
   itemName: "",
   category: "Other",
@@ -57,16 +64,6 @@ const EMPTY_FORM: BudgetFormState = {
   needsAmount: false,
   isActive: true,
 };
-
-const TYPE_OPTIONS: Array<{ value: BudgetItemType; label: string; help: string }> = [
-  { value: "income", label: "Income", help: "Money coming in" },
-  { value: "fixed", label: "Fixed bill", help: "Regular bill" },
-  { value: "debt", label: "Debt", help: "Loan or card" },
-  { value: "variable", label: "Flexible spending", help: "Changes month to month" },
-  { value: "saving", label: "Saving", help: "Set aside" },
-  { value: "buffer", label: "Buffer", help: "Cushion" },
-  { value: "info", label: "Info only", help: "Not counted" },
-];
 
 const FREQUENCY_OPTIONS: Array<{ value: BudgetFrequency; label: string }> = [
   { value: "weekly", label: "Weekly" },
@@ -134,6 +131,15 @@ const COMMON_TEMPLATES: BudgetTemplate[] = [
   { itemName: "Custom item", category: "Other", type: "variable", frequency: "monthly" },
 ];
 
+const ADD_CHOICES: AddChoice[] = [
+  { label: "Income", type: "income", scope: "personal", category: "Income" },
+  { label: "Bill/direct debit", type: "fixed", scope: "personal", category: "Bills" },
+  { label: "Debt repayment", type: "debt", scope: "personal", category: "Debt" },
+  { label: "Shared expense", type: "variable", scope: "shared", category: "Shared household" },
+  { label: "Personal expense", type: "variable", scope: "personal", category: "Personal spending" },
+  { label: "Savings goal", type: "saving", scope: "personal", category: "Savings" },
+];
+
 function labelForFrequency(frequency: BudgetFrequency) {
   return FREQUENCY_OPTIONS.find((item) => item.value === frequency)?.label ?? frequency;
 }
@@ -184,15 +190,28 @@ function templateForm(template: BudgetTemplate, monthStart: string): BudgetFormS
     frequency: template.frequency,
     amount: "",
     startDate: monthStart,
-    scope: ["Food", "Utilities", "Dining out", "Gifts", "Clothes"].includes(template.category) || template.itemName === "Mortgage / rent" ? "shared" : "personal",
+    scope: scopeForTemplate(template),
     needsAmount: Boolean(template.needsAmount),
   };
+}
+
+function scopeForTemplate(template: BudgetTemplate): BudgetItemScope {
+  return ["Food", "Utilities", "Dining out", "Gifts", "Clothes"].includes(template.category) || template.itemName === "Mortgage / rent" ? "shared" : "personal";
+}
+
+function stepTitle(step: number) {
+  if (step === 1) return "What are you adding?";
+  if (step === 2) return "Who is this for?";
+  if (step === 3) return "What is the item?";
+  if (step === 4) return "Amount and frequency";
+  return "Anything else?";
 }
 
 export function BudgetPage() {
   const { user } = useAuth();
   const { members, budgetItems, budgetMonth, budgetLimits, expenses, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
   const [showForm, setShowForm] = useState(false);
+  const [formStep, setFormStep] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BudgetFormState>({ ...EMPTY_FORM, startDate: monthStart });
   const [saving, setSaving] = useState(false);
@@ -296,6 +315,7 @@ export function BudgetPage() {
       ownerUserId: defaultMemberId,
       payerUserId: defaultMemberId,
     });
+    setFormStep(1);
     setError(null);
     setShowForm(true);
   };
@@ -303,6 +323,7 @@ export function BudgetPage() {
   const startEdit = (item: BudgetItem) => {
     setEditingId(item.id);
     setForm(formFromItem(item));
+    setFormStep(1);
     setError(null);
     setShowForm(true);
   };
@@ -315,14 +336,39 @@ export function BudgetPage() {
       type: template.type,
       frequency: template.frequency,
       amount: "",
-      scope: ["Food", "Utilities", "Dining out", "Gifts", "Clothes"].includes(template.category) || template.itemName === "Mortgage / rent" ? "shared" : current.scope,
+      scope: scopeForTemplate(template),
       needsAmount: Boolean(template.needsAmount),
     }));
+  };
+
+  const applyAddChoice = (choice: AddChoice) => {
+    setForm((current) => ({
+      ...current,
+      type: choice.type,
+      scope: choice.scope,
+      category: choice.category,
+      ownerUserId: current.ownerUserId || defaultMemberId,
+      payerUserId: current.payerUserId || defaultMemberId,
+    }));
+  };
+
+  const goToNextFormStep = () => {
+    setError(null);
+    if (formStep === 2 && !form.ownerUserId) {
+      setError("Choose who this item is for.");
+      return;
+    }
+    if (formStep === 3 && !form.itemName.trim()) {
+      setError("Enter an item name.");
+      return;
+    }
+    setFormStep((current) => Math.min(5, current + 1));
   };
 
   const cancelForm = () => {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, startDate: monthStart, ownerUserId: defaultMemberId, payerUserId: defaultMemberId });
+    setFormStep(1);
     setError(null);
     setShowForm(false);
   };
@@ -599,262 +645,137 @@ export function BudgetPage() {
                 {error ? <WarningBanner tone="strong">{error}</WarningBanner> : null}
 
                 <div>
-                  <p className="text-sm font-semibold text-moss">Step 1</p>
-                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">What is this item?</h3>
-                  <div className="mt-3 grid gap-3">
-                    <FormField label="Item name">
-                      <input
-                        className={inputClass}
-                        list="budget-item-name-options"
-                        value={form.itemName}
-                        onChange={(event) => setForm((current) => ({ ...current, itemName: event.target.value }))}
-                        placeholder="Mortgage / rent"
-                      />
-                      <datalist id="budget-item-name-options">
-                        {ITEM_NAME_OPTIONS.map((itemName) => (
-                          <option key={itemName} value={itemName} />
-                        ))}
-                      </datalist>
-                    </FormField>
-
-                    <label>
-                      <span className="mb-1.5 block text-sm font-semibold text-ink">Use common item</span>
-                      <select
-                        className={inputClass}
-                        value=""
-                        onChange={(event) => {
-                          const template = COMMON_TEMPLATES.find((item) => item.itemName === event.target.value);
-                          if (template) applyTemplate(template);
-                        }}
-                      >
-                        <option value="">Choose a common item</option>
-                        {COMMON_TEMPLATES.map((template) => (
-                          <option key={template.itemName} value={template.itemName}>
-                            {template.itemName}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+                  <p className="text-sm font-semibold text-moss">Step {formStep} of 5</p>
+                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">{stepTitle(formStep)}</h3>
                 </div>
 
-                <div>
-                  <p className="text-sm font-semibold text-moss">Step 2</p>
-                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">What type is it?</h3>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {TYPE_OPTIONS.map((option) => (
+                {formStep === 1 ? (
+                  <div className="grid gap-2">
+                    {ADD_CHOICES.map((choice) => (
                       <button
-                        key={option.value}
+                        key={choice.label}
                         type="button"
-                        className={`min-h-16 rounded-xl border px-3 py-3 text-left transition ${
-                          form.type === option.value ? "border-navy bg-navy text-white" : "border-sage bg-mist text-ink hover:border-moss"
+                        className={`rounded-xl border px-3 py-3 text-left font-semibold transition ${
+                          form.type === choice.type && form.scope === choice.scope && form.category === choice.category
+                            ? "border-navy bg-navy text-white"
+                            : "border-sage bg-mist text-ink hover:border-moss"
                         }`}
-                        onClick={() => setForm((current) => ({ ...current, type: option.value }))}
+                        onClick={() => applyAddChoice(choice)}
                       >
-                        <span className="block font-semibold">{option.label}</span>
-                        <span className={`mt-1 block text-xs ${form.type === option.value ? "text-white/75" : "text-ink/60"}`}>{option.help}</span>
+                        {choice.label}
                       </button>
                     ))}
                   </div>
-                </div>
+                ) : null}
 
-                <div>
-                  <p className="text-sm font-semibold text-moss">Step 3</p>
-                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">Who owns or pays it?</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <FormField label="Personal or shared">
-                      <select
-                        className={inputClass}
-                        value={form.scope}
-                        onChange={(event) => {
-                          const scope = event.target.value as BudgetItemScope;
-                          setForm((current) => ({
-                            ...current,
-                            scope,
-                            payerUserId: current.payerUserId || current.ownerUserId || defaultMemberId,
-                          }));
-                        }}
+                {formStep === 2 ? (
+                  <div className="grid gap-2">
+                    <button
+                      type="button"
+                      className={`rounded-xl border px-3 py-3 text-left font-semibold ${form.ownerUserId === defaultMemberId && form.scope === "personal" ? "border-navy bg-navy text-white" : "border-sage bg-mist text-ink"}`}
+                      onClick={() => setForm((current) => ({ ...current, scope: "personal", ownerUserId: defaultMemberId, payerUserId: current.payerUserId || defaultMemberId }))}
+                    >
+                      Me
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded-xl border px-3 py-3 text-left font-semibold ${form.scope === "shared" ? "border-navy bg-navy text-white" : "border-sage bg-mist text-ink"}`}
+                      onClick={() => setForm((current) => ({ ...current, scope: "shared", ownerUserId: defaultMemberId, payerUserId: current.payerUserId || defaultMemberId }))}
+                    >
+                      Shared household
+                    </button>
+                    {memberOptions.filter((member) => member.id !== defaultMemberId).map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className={`rounded-xl border px-3 py-3 text-left font-semibold ${form.ownerUserId === member.id ? "border-navy bg-navy text-white" : "border-sage bg-mist text-ink"}`}
+                        onClick={() => setForm((current) => ({ ...current, scope: "personal", ownerUserId: member.id, payerUserId: current.payerUserId || member.id }))}
                       >
-                        <option value="personal">Personal item</option>
-                        <option value="shared">Shared household item</option>
-                      </select>
-                    </FormField>
-
-                    <FormField label="Owner / entered for">
-                      <select
-                        className={inputClass}
-                        value={form.ownerUserId}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            ownerUserId: event.target.value,
-                            payerUserId: current.payerUserId || event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Choose member</option>
-                        {memberOptions.map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.label}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-
-                    <FormField label="Usually paid by">
-                      <select
-                        className={inputClass}
-                        value={form.payerUserId}
-                        onChange={(event) => setForm((current) => ({ ...current, payerUserId: event.target.value }))}
-                      >
-                        <option value="">No usual payer yet</option>
-                        {memberOptions.map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.label}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-
-                    <div className="rounded-xl border border-sage bg-mist px-3 py-3 text-sm leading-6 text-ink/65">
-                      <span className="font-semibold text-ink">Counted status: </span>
-                      {form.isActive && !form.needsAmount && form.type !== "info" ? "Counted when an amount is set." : "Not counted until active, counted type, and amount are set."}
-                    </div>
+                        {member.label}
+                      </button>
+                    ))}
                   </div>
-                </div>
+                ) : null}
 
-                <div>
-                  <p className="text-sm font-semibold text-moss">Step 4</p>
-                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">Amount and frequency</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <FormField label="Amount">
-                      <input
-                        className={inputClass}
-                        inputMode="decimal"
-                        value={form.needsAmount ? "" : form.amount}
-                        disabled={form.needsAmount}
-                        onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-                        placeholder="Leave empty if unknown"
-                      />
-                    </FormField>
-
-                    <FormField label="Frequency">
-                      <select
-                        className={inputClass}
-                        value={form.frequency}
-                        onChange={(event) => setForm((current) => ({ ...current, frequency: event.target.value as BudgetFrequency }))}
-                      >
-                        {FREQUENCY_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-
-                    <FormField label="Quantity">
-                      <input
-                        className={inputClass}
-                        inputMode="decimal"
-                        min="0.01"
-                        value={form.quantity}
-                        onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))}
-                      />
-                    </FormField>
-
-                    <label className="flex min-h-14 items-start gap-3 rounded-xl border border-sage bg-mist p-3 text-sm font-semibold text-ink">
-                      <input
-                        className="mt-1 h-4 w-4 accent-navy"
-                        type="checkbox"
-                        checked={form.needsAmount}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            needsAmount: event.target.checked,
-                            amount: event.target.checked ? "" : current.amount,
-                          }))
-                        }
-                      />
-                      <span>
-                        Needs amount
-                        <span className="block text-xs font-normal leading-5 text-ink/60">Visible, but not counted in totals.</span>
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="mt-3 rounded-xl border border-sage bg-white px-4 py-3">
-                    <p className="text-sm font-semibold text-ink">Monthly equivalent</p>
-                    <p className={`mt-1 text-xl font-bold tracking-normal ${formMonthlyEquivalent === "Needs amount" ? "text-coral" : "text-ink"}`}>
-                      {formMonthlyEquivalent}
-                    </p>
-                    <div className="mt-2 grid gap-1 text-xs text-ink/55 sm:grid-cols-2">
-                      <span>$185 quarterly = $61.67/month</span>
-                      <span>$22 weekly x 2 = $190.67/month</span>
-                      <span>$700 yearly = $58.33/month</span>
-                      <span>Empty amount = Needs amount</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-moss">Step 5</p>
-                  <h3 className="mt-1 text-lg font-bold tracking-normal text-ink">Optional details</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <FormField label="Category">
-                      <input
-                        className={inputClass}
-                        list="budget-category-options"
-                        value={form.category}
-                        onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
-                        placeholder="Housing"
-                      />
-                      <datalist id="budget-category-options">
-                        {CATEGORY_OPTIONS.map((category) => (
-                          <option key={category} value={category} />
-                        ))}
+                {formStep === 3 ? (
+                  <div className="grid gap-3">
+                    <FormField label="Item name">
+                      <input className={inputClass} list="budget-item-name-options" value={form.itemName} onChange={(event) => setForm((current) => ({ ...current, itemName: event.target.value }))} placeholder="Mortgage / rent" />
+                      <datalist id="budget-item-name-options">
+                        {ITEM_NAME_OPTIONS.map((itemName) => <option key={itemName} value={itemName} />)}
                       </datalist>
                     </FormField>
-
-                    <FormField label="Start date">
-                      <input
-                        className={inputClass}
-                        type="date"
-                        value={form.startDate}
-                        onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))}
-                      />
+                    <FormField label="Category">
+                      <input className={inputClass} list="budget-category-options" value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))} placeholder="Housing" />
+                      <datalist id="budget-category-options">
+                        {CATEGORY_OPTIONS.map((category) => <option key={category} value={category} />)}
+                      </datalist>
                     </FormField>
-
-                    <label className="flex min-h-14 items-start gap-3 rounded-xl border border-sage bg-mist p-3 text-sm font-semibold text-ink sm:col-span-2">
-                      <input
-                        className="mt-1 h-4 w-4 accent-navy"
-                        type="checkbox"
-                        checked={form.isActive}
-                        onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
-                      />
-                      <span>
-                        Active
-                        <span className="block text-xs font-normal leading-5 text-ink/60">Inactive items stay visible but do not count in totals.</span>
-                      </span>
+                    <label>
+                      <span className="mb-1.5 block text-sm font-semibold text-ink">Common item</span>
+                      <select className={inputClass} value="" onChange={(event) => {
+                        const template = COMMON_TEMPLATES.find((item) => item.itemName === event.target.value);
+                        if (template) applyTemplate(template);
+                      }}>
+                        <option value="">Choose a common item</option>
+                        {COMMON_TEMPLATES.map((template) => <option key={template.itemName} value={template.itemName}>{template.itemName}</option>)}
+                      </select>
                     </label>
+                  </div>
+                ) : null}
 
-                    <div className="sm:col-span-2">
-                      <FormField label="Notes">
-                        <textarea
-                          className={`${inputClass} min-h-24 resize-none`}
-                          value={form.notes}
-                          onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                          placeholder="Optional detail"
-                        />
+                {formStep === 4 ? (
+                  <div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <FormField label="Amount">
+                        <input className={inputClass} inputMode="decimal" value={form.needsAmount ? "" : form.amount} disabled={form.needsAmount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Leave empty if unknown" />
                       </FormField>
+                      <FormField label="Frequency">
+                        <select className={inputClass} value={form.frequency} onChange={(event) => setForm((current) => ({ ...current, frequency: event.target.value as BudgetFrequency }))}>
+                          {FREQUENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </FormField>
+                      <FormField label="Quantity">
+                        <input className={inputClass} inputMode="decimal" min="0.01" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} />
+                      </FormField>
+                      <label className="flex min-h-14 items-start gap-3 rounded-xl border border-sage bg-mist p-3 text-sm font-semibold text-ink">
+                        <input className="mt-1 h-4 w-4 accent-navy" type="checkbox" checked={form.needsAmount} onChange={(event) => setForm((current) => ({ ...current, needsAmount: event.target.checked, amount: event.target.checked ? "" : current.amount }))} />
+                        <span>Needs amount<span className="block text-xs font-normal leading-5 text-ink/60">Visible, but not counted in totals.</span></span>
+                      </label>
+                    </div>
+                    <div className="mt-3 rounded-xl border border-sage bg-white px-4 py-3">
+                      <p className="text-sm font-semibold text-ink">Monthly equivalent</p>
+                      <p className={`mt-1 text-xl font-bold tracking-normal ${formMonthlyEquivalent === "Needs amount" ? "text-coral" : "text-ink"}`}>{formMonthlyEquivalent}</p>
+                      <div className="mt-2 grid gap-1 text-xs text-ink/55 sm:grid-cols-2">
+                        <span>$185 quarterly = $61.67/month</span>
+                        <span>$22 weekly x 2 = $190.67/month</span>
+                        <span>Empty amount = Needs amount</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
+
+                {formStep === 5 ? (
+                  <div className="grid gap-3">
+                    <FormField label="Start date">
+                      <input className={inputClass} type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
+                    </FormField>
+                    <FormField label="Notes">
+                      <textarea className={`${inputClass} min-h-28 resize-none`} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional detail" />
+                    </FormField>
+                  </div>
+                ) : null}
 
                 <div className="sticky bottom-0 -mx-4 flex flex-col gap-2 border-t border-sage bg-white px-4 py-3 sm:static sm:mx-0 sm:flex-row sm:border-0 sm:px-0 sm:py-0">
-                  <Button type="submit" className="w-full sm:w-auto" loading={saving}>
-                    <Save className="h-4 w-4" aria-hidden="true" />
-                    Save item
-                  </Button>
+                  {formStep > 1 ? <Button type="button" className="w-full sm:w-auto" variant="secondary" onClick={() => setFormStep((current) => Math.max(1, current - 1))}>Back</Button> : null}
+                  {formStep < 5 ? (
+                    <Button type="button" className="w-full sm:w-auto" onClick={goToNextFormStep}>Next</Button>
+                  ) : (
+                    <Button type="submit" className="w-full sm:w-auto" loading={saving}>
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                      Save to money plan
+                    </Button>
+                  )}
                   <Button type="button" className="w-full sm:w-auto" variant="ghost" onClick={cancelForm}>
                     Cancel
                   </Button>
