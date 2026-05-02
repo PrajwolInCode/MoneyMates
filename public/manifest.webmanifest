@@ -1,7 +1,7 @@
 {
   "name": "MoneyMates",
   "short_name": "MoneyMates",
-  "description": "A calm household budgeting app for couples.",
+  "description": "A calm household budgeting app for shared households.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

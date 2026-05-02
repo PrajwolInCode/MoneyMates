@@ -85,7 +85,7 @@ declare
   category_limit numeric;
   category_spent numeric;
 begin
-  select coalesce(nullif(p.display_name, ''), p.email, 'Your partner') into actor_name from public.profiles p where p.id = new.user_id;
+  select coalesce(nullif(p.display_name, ''), p.email, 'A household member') into actor_name from public.profiles p where p.id = new.user_id;
   select c.name into category_name from public.categories c where c.id = new.category_id;
 
   for target_user_id in

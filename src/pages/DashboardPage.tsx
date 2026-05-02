@@ -33,6 +33,7 @@ import {
   plannedVsActual,
   spendingByCategory,
   spendingByPerson,
+  totalBudgetItemMonthlyPlannedExpenses,
   totalBudget,
   totalSpent,
 } from "../lib/budget";
@@ -47,6 +48,7 @@ export function DashboardPage() {
     categories,
     budgetMonth,
     budgetLimits,
+    budgetItems,
     expenses,
     recurringPayments,
     aiInsight,
@@ -59,14 +61,13 @@ export function DashboardPage() {
 
   const monthLabel = formatMonthLabel(monthStart);
   const spent = totalSpent(expenses);
-  const planned = totalBudget(budgetMonth, budgetLimits);
+  const manualPlanned = totalBudgetItemMonthlyPlannedExpenses(budgetItems);
+  const planned = manualPlanned > 0 ? manualPlanned : totalBudget(budgetMonth, budgetLimits);
   const remaining = planned - spent;
   const daysLeft = daysLeftInMonth(monthStart);
   const safeDailySpend = Math.max(0, remaining) / daysLeft;
   const biggest = biggestCategory(expenses, categories, budgetLimits);
   const people = spendingByPerson(expenses, members);
-  const primaryPerson = people[0] ?? { id: "praj", name: "Praj", spent: 0 };
-  const secondaryPerson = people[1] ?? { id: "wife", name: "Wife", spent: 0 };
 
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, budgetLimits), [expenses, categories, budgetLimits]);
   const plannedRows = useMemo(() => plannedVsActual(expenses, categories, budgetLimits).slice(0, 8), [expenses, categories, budgetLimits]);
@@ -86,6 +87,7 @@ export function DashboardPage() {
         expenses,
         members,
         recurringPayments,
+        budgetItems,
       });
       const response = await requestBudgetCoach(payload);
       await saveAiInsight(response);
@@ -114,11 +116,11 @@ export function DashboardPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title={`${monthLabel} total spent`} value={currency(spent)} detail="Combined spending from both of you." icon={CircleDollarSign} />
+        <StatCard title={`${monthLabel} total spent`} value={currency(spent)} detail="Combined spending for this household." icon={CircleDollarSign} />
         <StatCard
           title="Remaining budget"
           value={currency(remaining)}
-          detail={planned > 0 ? `${currency(planned)} planned for this month.` : "Set a monthly plan to unlock remaining budget."}
+          detail={planned > 0 ? `${currency(planned)} planned for this month.` : "Add budget items to unlock remaining budget."}
           icon={Wallet}
           tone={remaining < 0 ? "danger" : "good"}
         />
@@ -135,8 +137,9 @@ export function DashboardPage() {
           detail={biggest ? biggest.category : "No category has spending yet."}
           icon={Landmark}
         />
-        <StatCard title={`Spending by ${primaryPerson.name}`} value={currency(primaryPerson.spent)} icon={AreaChart} />
-        <StatCard title={`Spending by ${secondaryPerson.name}`} value={currency(secondaryPerson.spent)} icon={AreaChart} />
+        {people.slice(0, 2).map((person) => (
+          <StatCard key={person.id} title={`Spending by ${person.name}`} value={currency(person.spent)} icon={AreaChart} />
+        ))}
         <Card className="sm:col-span-2">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>

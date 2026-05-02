@@ -26,7 +26,7 @@ function joinErrorMessage(caught: unknown) {
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { household, createHousehold, joinHousehold } = useHousehold();
-  const [householdName, setHouseholdName] = useState("Praj household");
+  const [householdName, setHouseholdName] = useState("Our household");
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState<"create" | "join" | null>(null);
@@ -56,7 +56,7 @@ export function OnboardingPage() {
     setError(null);
     const normalizedCode = normalizeJoinCode(joinCode);
     if (normalizedCode.length < 6) {
-      setError("Enter the join code from your spouse.");
+      setError("Enter the household join code.");
       return;
     }
     setLoadingAction("join");
@@ -78,7 +78,7 @@ export function OnboardingPage() {
             <UsersRound className="h-7 w-7" aria-hidden="true" />
           </div>
           <h1 className="text-3xl font-bold tracking-normal text-ink">Set up your household</h1>
-          <p className="mt-2 text-sm leading-6 text-ink/65">Create the shared space once, then invite your spouse with the join code.</p>
+          <p className="mt-2 text-sm leading-6 text-ink/65">Create the shared space once, then invite household members with the join code.</p>
         </div>
 
         {error ? (
@@ -90,7 +90,7 @@ export function OnboardingPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <h2 className="text-xl font-bold tracking-normal text-ink">Create household</h2>
-            <p className="mt-1 text-sm text-ink/60">Start the May 2026 budget and invite your spouse after setup.</p>
+            <p className="mt-1 text-sm text-ink/60">Start the household budget and invite members after setup.</p>
             <form className="mt-5 space-y-4" onSubmit={handleCreate}>
               <FormField label="Household name">
                 <input className={inputClass} value={householdName} onChange={(event) => setHouseholdName(event.target.value)} />
@@ -103,7 +103,7 @@ export function OnboardingPage() {
 
           <Card>
             <h2 className="text-xl font-bold tracking-normal text-ink">Join household</h2>
-            <p className="mt-1 text-sm text-ink/60">Use the simple code your spouse sees in Settings.</p>
+            <p className="mt-1 text-sm text-ink/60">Use the simple code shown in Settings for the household.</p>
             <form className="mt-5 space-y-4" onSubmit={handleJoin}>
               <FormField label="Join code">
                 <input

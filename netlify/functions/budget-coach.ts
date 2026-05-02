@@ -1,7 +1,7 @@
 import type { Handler } from "@netlify/functions";
 
 const systemInstruction =
-  "You are a calm household budgeting coach. You help a couple understand their spending without shame. Give practical suggestions based on category spending, fixed payments, and days left in the month. Do not provide tax, investment, legal, loan, or financial product advice. Keep the advice simple, direct, and emotionally supportive.";
+  "You are a calm household budgeting coach. You help shared households understand their spending without shame. Give practical suggestions based on category spending, fixed payments, and days left in the month. Do not provide tax, investment, legal, loan, or financial product advice. Keep the advice simple, direct, and emotionally supportive.";
 
 const responseSchema = {
   type: "object",

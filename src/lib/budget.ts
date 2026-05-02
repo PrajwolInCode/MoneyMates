@@ -1,5 +1,6 @@
 import type {
   AiInsight,
+  BudgetItem,
   BudgetLimit,
   BudgetMonth,
   Category,
@@ -54,11 +55,56 @@ export function spendingByPerson(expenses: Expense[], members: HouseholdMember[]
         .reduce((sum, expense) => sum + Number(expense.amount), 0);
       return {
         id: member.user_id,
-        name: personName(member.profile?.display_name, index === 0 ? "Praj" : "Wife"),
+        name: personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
         spent,
       };
     })
     .sort((a, b) => b.spent - a.spent);
+}
+
+export function monthlyAmountForBudgetItem(item: Pick<BudgetItem, "amount" | "frequency" | "quantity" | "needs_amount">) {
+  if (item.needs_amount || item.amount === null || item.amount === undefined || item.frequency === "unknown") {
+    return null;
+  }
+
+  const amount = Number(item.amount);
+  const quantity = Number(item.quantity || 1);
+  if (!Number.isFinite(amount) || !Number.isFinite(quantity) || amount < 0 || quantity <= 0) {
+    return null;
+  }
+
+  switch (item.frequency) {
+    case "weekly":
+      return (amount * quantity * 52) / 12;
+    case "fortnightly":
+      return (amount * quantity * 26) / 12;
+    case "monthly":
+      return amount * quantity;
+    case "quarterly":
+      return (amount * quantity) / 3;
+    case "yearly":
+      return (amount * quantity) / 12;
+    case "one_time":
+      return amount * quantity;
+    default:
+      return null;
+  }
+}
+
+export function budgetItemNeedsAmount(item: Pick<BudgetItem, "amount" | "needs_amount">) {
+  return item.needs_amount || item.amount === null || item.amount === undefined;
+}
+
+export function totalBudgetItemMonthlyIncome(items: BudgetItem[]) {
+  return items
+    .filter((item) => item.is_active && !item.archived_at && item.type === "income")
+    .reduce((sum, item) => sum + (monthlyAmountForBudgetItem(item) ?? 0), 0);
+}
+
+export function totalBudgetItemMonthlyPlannedExpenses(items: BudgetItem[]) {
+  return items
+    .filter((item) => item.is_active && !item.archived_at && item.type !== "income" && item.type !== "info")
+    .reduce((sum, item) => sum + (monthlyAmountForBudgetItem(item) ?? 0), 0);
 }
 
 export function dailyTrend(expenses: Expense[]) {
@@ -92,8 +138,10 @@ export function buildCoachPayload(params: {
   expenses: Expense[];
   members: HouseholdMember[];
   recurringPayments: RecurringPayment[];
+  budgetItems?: BudgetItem[];
 }): MonthlyCoachPayload {
-  const plannedBudget = totalBudget(params.budgetMonth, params.limits);
+  const itemPlannedBudget = params.budgetItems?.length ? totalBudgetItemMonthlyPlannedExpenses(params.budgetItems) : 0;
+  const plannedBudget = itemPlannedBudget > 0 ? itemPlannedBudget : totalBudget(params.budgetMonth, params.limits);
   const spent = totalSpent(params.expenses);
   const daysLeft = daysLeftInMonth(params.monthStart);
   const remainingBudget = Math.max(0, plannedBudget - spent);
@@ -107,7 +155,7 @@ export function buildCoachPayload(params: {
   return {
     householdName: params.household.name,
     month: params.monthStart,
-    totalIncome: Number(params.budgetMonth?.total_income ?? 0),
+    totalIncome: params.budgetItems?.length ? totalBudgetItemMonthlyIncome(params.budgetItems) : Number(params.budgetMonth?.total_income ?? 0),
     plannedBudget,
     totalSpent: spent,
     remainingBudget,

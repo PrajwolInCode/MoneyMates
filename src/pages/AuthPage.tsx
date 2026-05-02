@@ -79,7 +79,7 @@ export function AuthPage() {
             <CircleDollarSign className="h-8 w-8" aria-hidden="true" />
           </div>
           <h1 className="text-3xl font-bold tracking-normal text-ink">MoneyMates</h1>
-          <p className="mt-2 text-sm leading-6 text-ink/65">A calm place for both of you to track the household plan.</p>
+          <p className="mt-2 text-sm leading-6 text-ink/65">A calm place for shared household budgeting.</p>
         </div>
 
         <Card>
@@ -109,7 +109,7 @@ export function AuthPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             {mode === "signup" ? (
               <FormField label="Display name">
-                <input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Praj" />
+                <input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" />
               </FormField>
             ) : null}
 

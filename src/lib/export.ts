@@ -1,5 +1,5 @@
-import type { AiInsight, BudgetLimit, BudgetMonth, Category, Expense, Household, HouseholdMember } from "../types";
-import { spendingByCategory, spendingByPerson, totalBudget, totalSpent } from "./budget";
+import type { AiInsight, BudgetItem, BudgetLimit, BudgetMonth, Category, Expense, Household, HouseholdMember } from "../types";
+import { spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "./budget";
 import { currency } from "./format";
 
 function downloadBlob(filename: string, content: BlobPart, type: string) {
@@ -56,6 +56,7 @@ export async function exportSummaryPdf(params: {
   household: Household;
   monthLabel: string;
   budgetMonth: BudgetMonth | null;
+  budgetItems?: BudgetItem[];
   categories: Category[];
   limits: BudgetLimit[];
   expenses: Expense[];
@@ -64,9 +65,12 @@ export async function exportSummaryPdf(params: {
 }) {
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF();
-  const planned = totalBudget(params.budgetMonth, params.limits);
+  const manualPlanned = params.budgetItems?.length ? totalBudgetItemMonthlyPlannedExpenses(params.budgetItems) : 0;
+  const manualIncome = params.budgetItems?.length ? totalBudgetItemMonthlyIncome(params.budgetItems) : 0;
+  const planned = manualPlanned > 0 ? manualPlanned : totalBudget(params.budgetMonth, params.limits);
   const spent = totalSpent(params.expenses);
   const remaining = planned - spent;
+  const totalIncome = manualIncome > 0 ? manualIncome : Number(params.budgetMonth?.total_income ?? 0);
   let y = 18;
 
   doc.setFont("helvetica", "bold");
@@ -80,7 +84,7 @@ export async function exportSummaryPdf(params: {
   y += 7;
   doc.text(`Month: ${params.monthLabel}`, 14, y);
   y += 7;
-  doc.text(`Total income: ${currency(Number(params.budgetMonth?.total_income ?? 0))}`, 14, y);
+  doc.text(`Total income: ${currency(totalIncome)}`, 14, y);
   y += 7;
   doc.text(`Total spent: ${currency(spent)}`, 14, y);
   y += 7;
@@ -105,6 +109,25 @@ export async function exportSummaryPdf(params: {
     doc.text(`${item.name}: ${currency(item.spent)}`, 16, y);
     y += 6;
   });
+
+  const transactionsWithNotes = params.expenses.filter((expense) => expense.note?.trim());
+  if (transactionsWithNotes.length) {
+    y += 6;
+    doc.setFont("helvetica", "bold");
+    doc.text("Transaction notes", 14, y);
+    y += 7;
+    doc.setFont("helvetica", "normal");
+    transactionsWithNotes.slice(0, 18).forEach((expense) => {
+      if (y > 276) {
+        doc.addPage();
+        y = 18;
+      }
+      const label = `${expense.spent_on} ${expense.merchant || expense.category?.name || "Expense"}: ${expense.note ?? ""}`;
+      const lines = doc.splitTextToSize(label, 178);
+      doc.text(lines, 16, y);
+      y += lines.length * 5 + 2;
+    });
+  }
 
   if (params.aiInsight) {
     y += 6;

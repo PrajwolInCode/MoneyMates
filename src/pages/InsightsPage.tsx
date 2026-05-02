@@ -17,6 +17,7 @@ export function InsightsPage() {
     monthStart,
     budgetMonth,
     budgetLimits,
+    budgetItems,
     categories,
     expenses,
     members,
@@ -46,6 +47,7 @@ export function InsightsPage() {
         expenses,
         members,
         recurringPayments,
+        budgetItems,
       });
       const response = await requestBudgetCoach(payload);
       await saveAiInsight(response);
@@ -178,7 +180,7 @@ export function InsightsPage() {
             </div>
           ) : (
             <div className="mt-4">
-              <EmptyState title="No household members" message="Invite your spouse to see a useful split here." />
+              <EmptyState title="No household members" message="Invite household members to see a useful split here." />
             </div>
           )}
         </Card>

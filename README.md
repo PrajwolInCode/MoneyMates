@@ -1,6 +1,6 @@
 # MoneyMates
 
-MoneyMates is a mobile-first household budgeting PWA for a husband and wife budget starting from 1 May 2026. It uses manual expense entry, shared Supabase household data, category limits, recurring payments, exports, and a Netlify Function for calm OpenAI budget coaching.
+MoneyMates is a mobile-first household budgeting PWA for shared households. It uses manual expense entry, private Supabase household data, manual budget items, category limits, recurring payments, notifications, exports, and a Netlify Function for calm OpenAI budget coaching.
 
 ## Stack
 
@@ -54,6 +54,11 @@ Create `.env.local`:
 ```bash
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+VITE_WEB_PUSH_PUBLIC_KEY=optional-public-vapid-key
+SUPABASE_SERVICE_ROLE_KEY=server-only-supabase-service-role-key
+VAPID_PUBLIC_KEY=optional-public-vapid-key
+VAPID_PRIVATE_KEY=server-only-vapid-private-key
+VAPID_SUBJECT=mailto:alerts@example.com
 ```
 
 Run the app:
@@ -84,11 +89,14 @@ The migration creates:
 - `categories`
 - `budget_months`
 - `budget_limits`
+- `budget_items`
 - `expenses`
 - `recurring_payments`
 - `ai_insights`
+- `notifications`
+- `push_subscriptions`
 
-RLS is enabled on every public table. Users can only read household data where they are members. Members can add their own expenses. Users can update and delete only their own expenses. Household owners manage categories, monthly limits, and recurring payments. Spouses join through the safe `join_household_by_code` RPC.
+RLS is enabled on every public table. Users can only read household data where they are members. Members can add their own expenses and manage household budget items. Users can update and delete only their own expenses. Household owners manage categories, monthly limits, and recurring payments. Members join through the safe `join_household_by_code` RPC.
 
 Do not put a Supabase service role key in the frontend.
 
@@ -144,8 +152,10 @@ In Netlify:
 
 1. Connect the GitHub repo.
 2. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-3. Add `OPENAI_API_KEY` and `OPENAI_MODEL`.
-4. Deploy.
+3. Add `VITE_WEB_PUSH_PUBLIC_KEY` only if phone push is configured.
+4. Add `SUPABASE_SERVICE_ROLE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in Netlify only if phone push is configured. Do not expose the service role key or VAPID private key in frontend variables.
+5. Add `OPENAI_API_KEY` and `OPENAI_MODEL`.
+6. Deploy.
 
 ## PWA Install
 

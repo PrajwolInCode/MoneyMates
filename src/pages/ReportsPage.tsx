@@ -8,13 +8,13 @@ import { PageHeader } from "../components/PageHeader";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
-import { spendingByCategory, spendingByPerson, totalBudget, totalSpent } from "../lib/budget";
+import { spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
 import { BUDGET_START_MONTH } from "../lib/constants";
 import { formatMonthLabel, getMonthBounds, monthInputToStart, monthStartToInput } from "../lib/date";
 import { exportSummaryPdf, exportTransactionsCsv, exportTransactionsExcel } from "../lib/export";
 import { currency } from "../lib/format";
 import { supabase } from "../lib/supabase";
-import type { AiInsight, BudgetLimit, BudgetMonth, Expense } from "../types";
+import type { AiInsight, BudgetItem, BudgetLimit, BudgetMonth, Expense } from "../types";
 
 function normalizeExpense(row: any): Expense {
   return {
@@ -32,11 +32,22 @@ function normalizeInsight(row: any): AiInsight {
   };
 }
 
+function normalizeBudgetItem(row: any): BudgetItem {
+  return {
+    ...row,
+    amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+    quantity: Number(row.quantity ?? 1),
+    needs_amount: Boolean(row.needs_amount),
+    is_active: Boolean(row.is_active),
+  };
+}
+
 export function ReportsPage() {
   const { household, categories, members, monthStart } = useHousehold();
   const [selectedMonth, setSelectedMonth] = useState(monthStartToInput(monthStart));
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [budgetMonth, setBudgetMonth] = useState<BudgetMonth | null>(null);
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([]);
   const [limits, setLimits] = useState<BudgetLimit[]>([]);
   const [aiInsight, setAiInsight] = useState<AiInsight | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,7 +56,10 @@ export function ReportsPage() {
   const selectedStart = monthInputToStart(selectedMonth);
   const monthLabel = formatMonthLabel(selectedStart);
   const spent = useMemo(() => totalSpent(expenses), [expenses]);
-  const planned = useMemo(() => totalBudget(budgetMonth, limits), [budgetMonth, limits]);
+  const manualPlanned = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(budgetItems), [budgetItems]);
+  const manualIncome = useMemo(() => totalBudgetItemMonthlyIncome(budgetItems), [budgetItems]);
+  const planned = useMemo(() => (manualPlanned > 0 ? manualPlanned : totalBudget(budgetMonth, limits)), [budgetMonth, limits, manualPlanned]);
+  const totalIncome = manualIncome > 0 ? manualIncome : Number(budgetMonth?.total_income ?? 0);
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, limits), [expenses, categories, limits]);
   const peopleRows = useMemo(() => spendingByPerson(expenses, members), [expenses, members]);
 
@@ -61,7 +75,7 @@ export function ReportsPage() {
       const bounds = getMonthBounds(selectedStart);
 
       try {
-        const [expenseResult, monthResult] = await Promise.all([
+        const [expenseResult, monthResult, budgetItemsResult] = await Promise.all([
           supabase
             .from("expenses")
             .select("*,categories(*),profiles(id,display_name,email,created_at,updated_at)")
@@ -75,15 +89,24 @@ export function ReportsPage() {
             .eq("household_id", householdId)
             .eq("month_start", selectedStart)
             .maybeSingle(),
+          supabase
+            .from("budget_items")
+            .select("*")
+            .eq("household_id", householdId)
+            .is("archived_at", null)
+            .order("type", { ascending: true })
+            .order("item_name", { ascending: true }),
         ]);
 
         if (expenseResult.error) throw expenseResult.error;
         if (monthResult.error) throw monthResult.error;
+        if (budgetItemsResult.error) throw budgetItemsResult.error;
         if (!mounted) return;
 
         const nextBudgetMonth = monthResult.data ? ({ ...monthResult.data } as BudgetMonth) : null;
         setExpenses((expenseResult.data ?? []).map(normalizeExpense));
         setBudgetMonth(nextBudgetMonth);
+        setBudgetItems((budgetItemsResult.data ?? []).map(normalizeBudgetItem));
 
         if (!nextBudgetMonth) {
           setLimits([]);
@@ -173,6 +196,7 @@ export function ReportsPage() {
                     budgetMonth,
                     categories,
                     limits,
+                    budgetItems,
                     expenses,
                     members,
                     aiInsight,
@@ -193,7 +217,7 @@ export function ReportsPage() {
         </Card>
         <Card>
           <p className="text-sm font-medium text-ink/60">Total income</p>
-          <p className="mt-2 text-2xl font-bold tracking-normal text-ink">{currency(Number(budgetMonth?.total_income ?? 0))}</p>
+          <p className="mt-2 text-2xl font-bold tracking-normal text-ink">{currency(totalIncome)}</p>
         </Card>
         <Card>
           <p className="text-sm font-medium text-ink/60">Total spent</p>
@@ -237,7 +261,7 @@ export function ReportsPage() {
             </div>
           ) : (
             <div className="mt-4">
-              <EmptyState title="No spending split" message="Invite your spouse and add expenses to show this split." />
+              <EmptyState title="No spending split" message="Invite household members and add expenses to show this split." />
             </div>
           )}
         </Card>

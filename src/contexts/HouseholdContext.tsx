@@ -1,9 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { DEFAULT_CATEGORIES } from "../lib/constants";
 import { getMonthBounds, getMonthStart } from "../lib/date";
+import { sendHouseholdPhonePush } from "../lib/pushNotifications";
 import { supabase } from "../lib/supabase";
 import type {
   AiInsight,
+  BudgetFrequency,
+  BudgetItem,
+  BudgetItemType,
   BudgetLimit,
   BudgetMonth,
   Category,
@@ -30,12 +34,26 @@ type BudgetLimitInput = {
   amount: number;
 };
 
+type BudgetItemInput = {
+  item_name: string;
+  category: string;
+  type: BudgetItemType;
+  amount: number | null;
+  frequency: BudgetFrequency;
+  quantity: number;
+  start_date?: string | null;
+  notes?: string | null;
+  needs_amount: boolean;
+  is_active: boolean;
+};
+
 type HouseholdContextValue = {
   household: Household | null;
   members: HouseholdMember[];
   categories: Category[];
   budgetMonth: BudgetMonth | null;
   budgetLimits: BudgetLimit[];
+  budgetItems: BudgetItem[];
   expenses: Expense[];
   recurringPayments: RecurringPayment[];
   notifications: Notification[];
@@ -51,11 +69,14 @@ type HouseholdContextValue = {
   joinHousehold: (joinCode: string) => Promise<void>;
   addExpense: (input: AddExpenseInput) => Promise<void>;
   saveBudget: (input: { totalIncome: number; plannedBudget: number; limits: BudgetLimitInput[] }) => Promise<void>;
+  saveBudgetItem: (input: BudgetItemInput, id?: string) => Promise<void>;
+  archiveBudgetItem: (id: string) => Promise<void>;
   createCategory: (name: string) => Promise<void>;
   saveRecurringPayment: (input: { name: string; amount: number; dueDay: number; categoryId: string }) => Promise<void>;
   deleteRecurringPayment: (id: string) => Promise<void>;
   saveAiInsight: (response: CoachResponse) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   addExpenseComment: (expenseId: string, body: string) => Promise<void>;
 };
 
@@ -93,6 +114,16 @@ function normalizeRecurring(row: any): RecurringPayment {
   };
 }
 
+function normalizeBudgetItem(row: any): BudgetItem {
+  return {
+    ...row,
+    amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+    quantity: Number(row.quantity ?? 1),
+    needs_amount: Boolean(row.needs_amount),
+    is_active: Boolean(row.is_active),
+  };
+}
+
 function normalizeInsight(row: any): AiInsight {
   return {
     ...row,
@@ -107,6 +138,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgetMonth, setBudgetMonth] = useState<BudgetMonth | null>(null);
   const [budgetLimits, setBudgetLimits] = useState<BudgetLimit[]>([]);
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [recurringPayments, setRecurringPayments] = useState<RecurringPayment[]>([]);
   const [aiInsight, setAiInsight] = useState<AiInsight | null>(null);
@@ -117,6 +149,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const monthStart = getMonthStart();
 
   const isOwner = Boolean(household && user && household.owner_id === user.id);
+  const currentUserLabel = () => user?.user_metadata.display_name || user?.email || "A household member";
 
   const clearHouseholdData = () => {
     setHousehold(null);
@@ -124,6 +157,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setCategories([]);
     setBudgetMonth(null);
     setBudgetLimits([]);
+    setBudgetItems([]);
     setExpenses([]);
     setRecurringPayments([]);
     setAiInsight(null);
@@ -161,9 +195,19 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     }
   };
   const loadHouseholdData = async (target: Household) => {
+    if (!user) return;
     const bounds = getMonthBounds(monthStart);
 
-    const [membersResult, categoriesResult, budgetMonthResult, expensesResult, recurringResult, notificationsResult, commentsResult] = await Promise.all([
+    const [
+      membersResult,
+      categoriesResult,
+      budgetMonthResult,
+      budgetItemsResult,
+      expensesResult,
+      recurringResult,
+      notificationsResult,
+      commentsResult,
+    ] = await Promise.all([
       supabase
         .from("household_members")
         .select("household_id,user_id,role,joined_at,profiles(id,display_name,email,created_at,updated_at)")
@@ -177,6 +221,14 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .eq("month_start", monthStart)
         .maybeSingle(),
       supabase
+        .from("budget_items")
+        .select("*")
+        .eq("household_id", target.id)
+        .is("archived_at", null)
+        .order("is_active", { ascending: false })
+        .order("type", { ascending: true })
+        .order("item_name", { ascending: true }),
+      supabase
         .from("expenses")
         .select("*,categories(*),profiles(id,display_name,email,created_at,updated_at)")
         .eq("household_id", target.id)
@@ -189,7 +241,13 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         .select("*,categories(*)")
         .eq("household_id", target.id)
         .order("due_day", { ascending: true }),
-      supabase.from("notifications").select("*").eq("household_id", target.id).order("created_at", { ascending: false }).limit(40),
+      supabase
+        .from("notifications")
+        .select("*")
+        .eq("household_id", target.id)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(40),
       supabase
         .from("expense_comments")
         .select("*,profiles(id,display_name,email,created_at,updated_at)")
@@ -200,6 +258,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     if (membersResult.error) throw membersResult.error;
     if (categoriesResult.error) throw categoriesResult.error;
     if (budgetMonthResult.error) throw budgetMonthResult.error;
+    if (budgetItemsResult.error) throw budgetItemsResult.error;
     if (expensesResult.error) throw expensesResult.error;
     if (recurringResult.error) throw recurringResult.error;
     if (notificationsResult.error) throw notificationsResult.error;
@@ -209,6 +268,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     setMembers((membersResult.data ?? []).map(normalizeMember));
     setCategories((categoriesResult.data ?? []) as Category[]);
     setBudgetMonth(nextBudgetMonth);
+    setBudgetItems((budgetItemsResult.data ?? []).map(normalizeBudgetItem));
     setExpenses((expensesResult.data ?? []).map(normalizeExpense));
     const normalizedRecurring = (recurringResult.data ?? []).map(normalizeRecurring);
     setRecurringPayments(normalizedRecurring);
@@ -283,9 +343,10 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     if (!household || !user) return;
     const channel = supabase
       .channel(`household-stream-${household.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, () => void refresh())
       .on("postgres_changes", { event: "*", schema: "public", table: "expense_comments", filter: `household_id=eq.${household.id}` }, () => void refresh())
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "expenses", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses", filter: `household_id=eq.${household.id}` }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_items", filter: `household_id=eq.${household.id}` }, () => void refresh())
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -320,6 +381,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       categories,
       budgetMonth,
       budgetLimits,
+      budgetItems,
       expenses,
       recurringPayments,
       notifications,
@@ -401,6 +463,14 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           note: input.note || null,
         });
         if (expenseError) throw expenseError;
+        const categoryName = categories.find((category) => category.id === input.category_id)?.name ?? "Expense";
+        const noteText = input.note?.trim() ? ` - Note: ${input.note.trim().slice(0, 140)}` : "";
+        void sendHouseholdPhonePush({
+          householdId: household.id,
+          title: `${currentUserLabel()} added a new expense`,
+          body: `${categoryName} - $${Number(input.amount).toFixed(2)}${noteText}`,
+          url: "/",
+        });
         await refresh();
       },
       saveBudget: async ({ totalIncome, plannedBudget, limits }) => {
@@ -431,6 +501,57 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         }
 
         setBudgetMonth(updatedMonth as BudgetMonth);
+        await refresh();
+      },
+      saveBudgetItem: async (input, id) => {
+        if (!household || !user) throw new Error("Create or join a household first.");
+        const amount = input.amount === null || input.amount === undefined ? null : input.amount;
+        const needsAmount = input.needs_amount || amount === null;
+        const row = {
+          household_id: household.id,
+          item_name: input.item_name,
+          category: input.category,
+          type: input.type,
+          amount,
+          frequency: input.frequency,
+          quantity: input.quantity,
+          start_date: input.start_date || null,
+          notes: input.notes || null,
+          needs_amount: needsAmount,
+          is_active: input.is_active,
+        };
+
+        if (id) {
+          const { error: updateError } = await supabase.from("budget_items").update(row).eq("id", id).eq("household_id", household.id);
+          if (updateError) throw updateError;
+        } else {
+          const { error: insertError } = await supabase.from("budget_items").insert({ ...row, created_by: user.id });
+          if (insertError) throw insertError;
+        }
+
+        void sendHouseholdPhonePush({
+          householdId: household.id,
+          title: `${currentUserLabel()} ${id ? "updated" : "added"} a budget item`,
+          body: `${input.item_name} - ${needsAmount ? "Needs amount" : `$${Number(amount).toFixed(2)}`}`,
+          url: "/budget",
+        });
+        await refresh();
+      },
+      archiveBudgetItem: async (id) => {
+        if (!household) throw new Error("Create or join a household first.");
+        const { error: archiveError } = await supabase
+          .from("budget_items")
+          .update({ is_active: false, archived_at: new Date().toISOString() })
+          .eq("id", id)
+          .eq("household_id", household.id);
+        if (archiveError) throw archiveError;
+        const archivedItem = budgetItems.find((item) => item.id === id);
+        void sendHouseholdPhonePush({
+          householdId: household.id,
+          title: `${currentUserLabel()} archived a budget item`,
+          body: archivedItem?.item_name ?? "Budget item archived",
+          url: "/budget",
+        });
         await refresh();
       },
       createCategory: async (name) => {
@@ -480,8 +601,18 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         await refresh();
       },
       markNotificationRead: async (id) => {
-        const { error: updateError } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id);
+        if (!user) throw new Error("You need to be logged in.");
+        const readAt = new Date().toISOString();
+        const { error: updateError } = await supabase.from("notifications").update({ read_at: readAt }).eq("id", id).eq("user_id", user.id);
         if (updateError) throw updateError;
+        setNotifications((current) => current.map((item) => (item.id === id ? { ...item, read_at: readAt } : item)));
+      },
+      markAllNotificationsRead: async () => {
+        if (!user) throw new Error("You need to be logged in.");
+        const readAt = new Date().toISOString();
+        const { error: updateError } = await supabase.from("notifications").update({ read_at: readAt }).eq("user_id", user.id).is("read_at", null);
+        if (updateError) throw updateError;
+        setNotifications((current) => current.map((item) => (item.read_at ? item : { ...item, read_at: readAt })));
       },
       addExpenseComment: async (expenseId, body) => {
         if (!household || !user) throw new Error("Create a household first.");
@@ -495,6 +626,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       categories,
       budgetMonth,
       budgetLimits,
+      budgetItems,
       expenses,
       recurringPayments,
       notifications,

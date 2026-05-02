@@ -4,7 +4,7 @@ import { useHousehold } from "../contexts/HouseholdContext";
 import { formatShortDate } from "../lib/date";
 
 export function NotificationCenter() {
-  const { notifications, unreadNotificationCount, markNotificationRead } = useHousehold();
+  const { notifications, unreadNotificationCount, markNotificationRead, markAllNotificationsRead } = useHousehold();
   const [open, setOpen] = useState(false);
   const top = useMemo(() => notifications.slice(0, 12), [notifications]);
 
@@ -25,7 +25,14 @@ export function NotificationCenter() {
 
       {open ? (
         <div className="absolute right-0 z-50 mt-2 w-96 max-w-[85vw] rounded-2xl border border-sage bg-white p-3 shadow-soft">
-          <p className="mb-2 text-sm font-semibold text-ink">Notification centre</p>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-ink">Notification centre</p>
+            {unreadNotificationCount > 0 ? (
+              <button className="text-xs font-semibold text-moss hover:text-navy" onClick={() => void markAllNotificationsRead()}>
+                Mark all read
+              </button>
+            ) : null}
+          </div>
           <div className="max-h-96 space-y-2 overflow-auto">
             {top.length ? (
               top.map((item) => (

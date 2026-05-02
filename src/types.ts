@@ -56,6 +56,29 @@ export type BudgetLimit = {
   updated_at?: string;
 };
 
+export type BudgetItemType = "income" | "fixed" | "variable" | "debt" | "saving" | "buffer" | "info";
+
+export type BudgetFrequency = "weekly" | "fortnightly" | "monthly" | "quarterly" | "yearly" | "one_time" | "unknown";
+
+export type BudgetItem = {
+  id: string;
+  household_id: string;
+  item_name: string;
+  category: string;
+  type: BudgetItemType;
+  amount: number | null;
+  frequency: BudgetFrequency;
+  quantity: number;
+  start_date?: string | null;
+  notes?: string | null;
+  needs_amount: boolean;
+  is_active: boolean;
+  archived_at?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at?: string;
+};
+
 export type Expense = {
   id: string;
   household_id: string;
