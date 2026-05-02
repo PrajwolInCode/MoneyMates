@@ -10,12 +10,13 @@ import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
+import { formatMonthLabel } from "../lib/date";
 import { disablePhonePush, enablePhonePush, getPhonePushSupportMessage, hasPhonePushSubscription } from "../lib/pushNotifications";
-import { hasSupabaseEnv } from "../lib/supabase";
+import { hasSupabaseEnv, supabaseUrlDomain } from "../lib/supabase";
 
 export function SettingsPage() {
   const { user, profile, updateProfile, signOut } = useAuth();
-  const { household, isOwner } = useHousehold();
+  const { household, isOwner, expenses, categories, budgetItems, notifications, monthStart } = useHousehold();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "");
   const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -196,6 +197,61 @@ export function SettingsPage() {
           <p className="mt-2 text-sm leading-6 text-ink/65">Reload your session, household membership, and household data from Supabase.</p>
           <RefreshDataButton className="mt-4 w-full sm:w-auto" />
         </Card>
+
+        {user ? (
+          <Card>
+            <h2 className="text-xl font-bold tracking-normal text-ink">Data connection</h2>
+            <div className="mt-4 grid gap-3 text-sm text-ink/70 sm:grid-cols-2">
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Logged-in email</p>
+                <p className="mt-1 break-words font-semibold text-ink">{user.email ?? "Unknown"}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">User ID</p>
+                <p className="mt-1 break-all font-mono text-xs text-ink">{user.id}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Current household name</p>
+                <p className="mt-1 font-semibold text-ink">{household?.name ?? "None"}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Current household ID</p>
+                <p className="mt-1 break-all font-mono text-xs text-ink">{household?.id ?? "None"}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Expenses loaded</p>
+                <p className="mt-1 text-2xl font-bold text-ink">{expenses.length}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Categories loaded</p>
+                <p className="mt-1 text-2xl font-bold text-ink">{categories.length}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Budget items loaded</p>
+                <p className="mt-1 text-2xl font-bold text-ink">{budgetItems.length}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Notifications loaded</p>
+                <p className="mt-1 text-2xl font-bold text-ink">{notifications.length}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Supabase project domain</p>
+                <p className="mt-1 break-words font-semibold text-ink">{supabaseUrlDomain}</p>
+              </div>
+              <div className="rounded-2xl bg-sage/50 p-4">
+                <p className="font-medium text-ink/55">Current selected month</p>
+                <p className="mt-1 font-semibold text-ink">{formatMonthLabel(monthStart)}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              {!hasSupabaseEnv ? <p className="rounded-xl bg-coral/10 px-3 py-2 font-semibold text-coral">Supabase connection missing</p> : null}
+              {!household ? <p className="rounded-xl bg-coral/10 px-3 py-2 font-semibold text-coral">No household found for this account</p> : null}
+              {user && !household ? <p className="rounded-xl bg-coral/10 px-3 py-2 font-semibold text-coral">You are logged in but not linked to a household</p> : null}
+              {hasSupabaseEnv && household ? <p className="rounded-xl bg-mint px-3 py-2 font-semibold text-moss">Data loaded successfully</p> : null}
+              {household && expenses.length === 0 ? <p className="rounded-xl bg-sage/50 px-3 py-2 font-semibold text-ink">No expenses found for selected month</p> : null}
+            </div>
+          </Card>
+        ) : null}
 
         <Card>
           <h2 className="text-xl font-bold tracking-normal text-ink">Environment</h2>
