@@ -170,6 +170,7 @@ export type MonthlyCoachPayload = {
   savingsGoal: number;
   actualExpensesThisMonth: number;
   itemsNeedingAmount: Array<{ itemName: string; category: string; ownerName: string }>;
+  possibleDuplicateBudgetItems: Array<{ label: string; reason: string; monthlyAmount: number | null; members: string[] }>;
   plannedBudget: number;
   totalSpent: number;
   remainingBudget: number;

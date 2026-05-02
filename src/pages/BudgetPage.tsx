@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Archive, Edit3, Plus, Save, X } from "lucide-react";
+import { AlertTriangle, Edit3, Plus, Save, Trash2, X } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { FormField } from "../components/FormField";
@@ -14,6 +14,9 @@ import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
 import {
   budgetItemNeedsAmount,
+  budgetItemsForMonthlyTotals,
+  findPotentialDuplicateBudgetItems,
+  findSimilarBudgetItems,
   monthlyAmountForBudgetItem,
   totalBudget,
   totalBudgetItemMonthlyIncome,
@@ -231,14 +234,28 @@ function stepTitle(step: number) {
 
 export function BudgetPage() {
   const { user } = useAuth();
-  const { members, budgetItems, budgetMonth, budgetLimits, expenses, monthStart, dataWarnings, saveBudgetItem, archiveBudgetItem } = useHousehold();
+  const {
+    members,
+    budgetItems,
+    budgetMonth,
+    budgetLimits,
+    expenses,
+    monthStart,
+    dataWarnings,
+    isOwner,
+    saveBudgetItem,
+    deleteBudgetItem,
+    clearLegacyMonthlyBudget,
+  } = useHousehold();
   const [searchParams, setSearchParams] = useSearchParams();
   const [showForm, setShowForm] = useState(false);
   const [formStep, setFormStep] = useState(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BudgetFormState>({ ...EMPTY_FORM, startDate: monthStart });
   const [saving, setSaving] = useState(false);
-  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [clearingLegacy, setClearingLegacy] = useState(false);
+  const [duplicateConfirmKey, setDuplicateConfirmKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -249,6 +266,8 @@ export function BudgetPage() {
   }, [toast]);
 
   const activeItems = useMemo(() => budgetItems.filter((item) => !item.archived_at), [budgetItems]);
+  const activeItemsForTotals = useMemo(() => budgetItemsForMonthlyTotals(activeItems), [activeItems]);
+  const duplicateGroups = useMemo(() => findPotentialDuplicateBudgetItems(activeItems), [activeItems]);
   const defaultMemberId = user?.id ?? members[0]?.user_id ?? "";
   const memberOptions = useMemo(
     () =>
@@ -291,12 +310,13 @@ export function BudgetPage() {
     setSearchParams({}, { replace: true });
   }, [openAddChoice, searchParams, setSearchParams, showForm]);
   const hasBudgetItems = activeItems.length > 0;
-  const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItems), [activeItems]);
+  const itemMonthlyIncome = useMemo(() => totalBudgetItemMonthlyIncome(activeItemsForTotals), [activeItemsForTotals]);
   const legacyIncome = Number(budgetMonth?.total_income ?? 0);
   const legacyPlannedExpenses = totalBudget(budgetMonth, budgetLimits);
+  const hasLegacyMonthlyTotals = legacyIncome > 0 || legacyPlannedExpenses > 0 || budgetLimits.length > 0;
   const actualSpent = totalSpent(expenses);
-  const monthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyIncome;
-  const showingLegacyBudget = !activeItems.length && (legacyIncome > 0 || legacyPlannedExpenses > 0);
+  const monthlyIncome = activeItems.length ? itemMonthlyIncome : legacyIncome;
+  const showingLegacyBudget = !activeItems.length && hasLegacyMonthlyTotals;
   const hasBudgetData = hasBudgetItems || showingLegacyBudget || actualSpent > 0;
   const budgetItemsLoadWarning = dataWarnings.find((warning) =>
     warning.includes("Budget items could not load. Your expenses and household data are still safe."),
@@ -336,10 +356,32 @@ export function BudgetPage() {
   );
   const needsAmountItems = useMemo(() => activeItems.filter((item) => item.is_active && budgetItemNeedsAmount(item)), [activeItems]);
 
-  const personalBillsTotal = personalBillItems.reduce((sum, item) => sum + monthlyValue(item), 0);
-  const sharedExpensesTotal = sharedExpenseItems.reduce((sum, item) => sum + monthlyValue(item), 0);
-  const debtRepaymentsTotal = debtItems.reduce((sum, item) => sum + monthlyValue(item), 0);
-  const savingsGoalTotal = savingsItems.reduce((sum, item) => sum + monthlyValue(item), 0);
+  const personalBillsTotal = activeItemsForTotals
+    .filter(
+      (item) =>
+        item.scope === "personal" &&
+        !budgetItemNeedsAmount(item) &&
+        item.type !== "income" &&
+        item.type !== "debt" &&
+        item.type !== "saving" &&
+        item.type !== "buffer",
+    )
+    .reduce((sum, item) => sum + monthlyValue(item), 0);
+  const sharedExpensesTotal = activeItemsForTotals
+    .filter(
+      (item) =>
+        item.scope === "shared" &&
+        !budgetItemNeedsAmount(item) &&
+        item.type !== "income" &&
+        item.type !== "debt" &&
+        item.type !== "saving" &&
+        item.type !== "buffer",
+    )
+    .reduce((sum, item) => sum + monthlyValue(item), 0);
+  const debtRepaymentsTotal = activeItemsForTotals.filter((item) => item.type === "debt" && !budgetItemNeedsAmount(item)).reduce((sum, item) => sum + monthlyValue(item), 0);
+  const savingsGoalTotal = activeItemsForTotals
+    .filter((item) => (item.type === "saving" || item.type === "buffer") && !budgetItemNeedsAmount(item))
+    .reduce((sum, item) => sum + monthlyValue(item), 0);
   const plannedOutflowTotal = personalBillsTotal + sharedExpensesTotal + debtRepaymentsTotal + savingsGoalTotal;
   const plannedRemaining = monthlyIncome - plannedOutflowTotal;
   const actualRemaining = monthlyIncome - actualSpent;
@@ -365,6 +407,7 @@ export function BudgetPage() {
   const moneyEquationRows = hasActualSpending ? actualEquationRows : plannedEquationRows;
   const moneyEquationTotal = hasActualSpending ? actualRemaining : plannedRemaining;
   const moneyEquationTitle = hasActualSpending ? "Actual left after spending" : "Planned remaining";
+  const duplicateItemsSkippedInTotals = duplicateGroups.reduce((sum, group) => sum + Math.max(0, group.items.length - 1), 0);
 
   const formMonthlyEquivalent = useMemo(() => {
     if (form.needsAmount || form.amount.trim() === "") return "Needs amount";
@@ -379,6 +422,46 @@ export function BudgetPage() {
     });
     return monthlyAmount === null ? "Not counted" : `${currency(monthlyAmount)}/month`;
   }, [form.amount, form.frequency, form.needsAmount, form.quantity]);
+
+  const formDuplicateMatches = useMemo(() => {
+    if (!showForm || !form.itemName.trim() || !form.category.trim() || !form.ownerUserId) return [];
+    const parsedAmount = form.needsAmount || form.amount.trim() === "" ? null : Number(form.amount);
+    const parsedQuantity = Number(form.quantity);
+    if (parsedAmount !== null && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) return [];
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) return [];
+    return findSimilarBudgetItems(
+      {
+        item_name: form.itemName.trim(),
+        category: form.category.trim(),
+        type: form.type,
+        amount: parsedAmount,
+        frequency: form.frequency,
+        quantity: parsedQuantity,
+        needs_amount: form.needsAmount || parsedAmount === null,
+        scope: form.scope,
+        owner_user_id: form.ownerUserId,
+        created_by: form.ownerUserId,
+        is_active: form.isActive,
+        archived_at: null,
+      },
+      activeItems,
+      editingId,
+    );
+  }, [
+    activeItems,
+    editingId,
+    form.amount,
+    form.category,
+    form.frequency,
+    form.isActive,
+    form.itemName,
+    form.needsAmount,
+    form.ownerUserId,
+    form.quantity,
+    form.scope,
+    form.type,
+    showForm,
+  ]);
 
   const openForm = (template?: BudgetTemplate) => {
     setEditingId(null);
@@ -442,6 +525,7 @@ export function BudgetPage() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, startDate: monthStart, ownerUserId: defaultMemberId, payerUserId: defaultMemberId });
     setFormStep(1);
+    setDuplicateConfirmKey(null);
     setError(null);
     setShowForm(false);
   };
@@ -476,6 +560,31 @@ export function BudgetPage() {
       return;
     }
 
+    const duplicateKey = `${form.ownerUserId}|${form.scope}|${form.type}|${itemName.toLowerCase()}|${category.toLowerCase()}|${parsedAmount ?? "unknown"}|${form.frequency}|${parsedQuantity}`;
+    const duplicateMatches = findSimilarBudgetItems(
+      {
+        item_name: itemName,
+        category,
+        type: form.type,
+        amount: parsedAmount,
+        frequency: form.frequency,
+        quantity: parsedQuantity,
+        needs_amount: form.needsAmount || parsedAmount === null,
+        scope: form.scope,
+        owner_user_id: form.ownerUserId,
+        created_by: form.ownerUserId,
+        is_active: form.isActive,
+        archived_at: null,
+      },
+      activeItems,
+      editingId,
+    );
+    if (duplicateMatches.length && duplicateConfirmKey !== duplicateKey) {
+      setDuplicateConfirmKey(duplicateKey);
+      setError(`This looks similar to "${duplicateMatches[0].item_name}". Save again only if this is a separate income, bill, or expense.`);
+      return;
+    }
+
     setSaving(true);
     try {
       await saveBudgetItem(
@@ -499,6 +608,7 @@ export function BudgetPage() {
       );
       const action = editingId ? "Updated" : "Added";
       setToast(`${action} ${typeLabel(form.type, form.scope)}: ${itemName} (${amountSummary(form, parsedAmount, parsedQuantity)}).`);
+      setDuplicateConfirmKey(null);
       cancelForm();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save budget item.");
@@ -507,18 +617,33 @@ export function BudgetPage() {
     }
   };
 
-  const handleArchive = async (item: BudgetItem) => {
-    const confirmed = window.confirm(`Archive "${item.item_name}"? It will no longer count in this budget.`);
+  const handleDelete = async (item: BudgetItem) => {
+    const confirmed = window.confirm(`Remove "${item.item_name}" from the household budget? This deletes the item for everyone.`);
     if (!confirmed) return;
-    setArchivingId(item.id);
+    setDeletingId(item.id);
     setError(null);
     try {
-      await archiveBudgetItem(item.id);
-      setToast("Budget item archived.");
+      await deleteBudgetItem(item.id);
+      setToast("Budget item removed.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not archive budget item.");
+      setError(caught instanceof Error ? caught.message : "Could not remove budget item.");
     } finally {
-      setArchivingId(null);
+      setDeletingId(null);
+    }
+  };
+
+  const handleClearLegacy = async () => {
+    const confirmed = window.confirm("Clear the old monthly income, plan amount, and category limits for this month? Member-owned budget items and transactions will stay.");
+    if (!confirmed) return;
+    setClearingLegacy(true);
+    setError(null);
+    try {
+      await clearLegacyMonthlyBudget();
+      setToast("Old monthly totals cleared.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not clear old monthly totals.");
+    } finally {
+      setClearingLegacy(false);
     }
   };
 
@@ -551,11 +676,11 @@ export function BudgetPage() {
           <button
             type="button"
             className="rounded-xl border border-coral/30 bg-white p-2 text-coral hover:bg-coral/10 disabled:opacity-50"
-            aria-label={`Archive ${item.item_name}`}
-            disabled={archivingId === item.id}
-            onClick={() => void handleArchive(item)}
+            aria-label={`Remove ${item.item_name}`}
+            disabled={deletingId === item.id}
+            onClick={() => void handleDelete(item)}
           >
-            <Archive className="h-4 w-4" aria-hidden="true" />
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -603,12 +728,91 @@ export function BudgetPage() {
         </div>
       ) : null}
 
-      {showingLegacyBudget ? (
+      {hasLegacyMonthlyTotals ? (
         <Card className="mb-5">
-          <p className="text-sm font-semibold text-moss">Existing monthly budget loaded</p>
-          <p className="mt-2 text-sm leading-6 text-ink/65">
-            This household still has legacy monthly totals. Add budget items to move the plan into member-owned income, bills, expenses, debts, and savings.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-moss">{activeItems.length ? "Old monthly totals found" : "Existing monthly budget loaded"}</p>
+              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
+                {activeItems.length ? "The old plan amount is not counted now." : "These old totals are being used until you add itemized budget data."}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-ink/65">
+                Clear this if it came from the first build or no longer matches your household. Your member income, bills, shared expenses, savings, and transactions will stay.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-80">
+              {legacyIncome > 0 ? (
+                <div className="rounded-xl bg-mist px-3 py-3">
+                  <p className="text-xs font-semibold uppercase text-ink/45">Old income</p>
+                  <p className="mt-1 text-lg font-bold text-ink">{currency(legacyIncome)}</p>
+                </div>
+              ) : null}
+              {legacyPlannedExpenses > 0 ? (
+                <div className="rounded-xl bg-mist px-3 py-3">
+                  <p className="text-xs font-semibold uppercase text-ink/45">Old plan</p>
+                  <p className="mt-1 text-lg font-bold text-ink">{currency(legacyPlannedExpenses)}</p>
+                </div>
+              ) : null}
+              {isOwner ? (
+                <Button className="sm:col-span-2" variant="secondary" loading={clearingLegacy} onClick={() => void handleClearLegacy()}>
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Clear old totals
+                </Button>
+              ) : (
+                <p className="rounded-xl bg-mist px-3 py-3 text-sm leading-6 text-ink/65 sm:col-span-2">Only the household owner can clear old monthly totals.</p>
+              )}
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {duplicateGroups.length ? (
+        <Card className="mb-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-coral/10 p-2 text-coral">
+              <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-coral">Review possible duplicates</p>
+              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
+                {duplicateItemsSkippedInTotals} repeated item{duplicateItemsSkippedInTotals === 1 ? "" : "s"} are counted once in totals.
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-ink/65">
+                Keep both if they are genuinely separate payments. Remove the extra one if two members added the same household cost or the same income was entered twice.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {duplicateGroups.map((group) => (
+              <div key={group.key} className="rounded-xl border border-coral/25 bg-coral/5 px-3 py-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="font-semibold text-ink">{group.label}</p>
+                  <p className="text-sm font-semibold text-ink/70">
+                    {group.monthlyAmount === null ? "Amount missing" : `${currency(group.monthlyAmount)}/month`}
+                  </p>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {group.items.map((item) => (
+                    <div key={item.id} className="flex flex-col gap-2 rounded-lg bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-ink/70">
+                        <span className="font-semibold text-ink">{item.item_name}</span> - {memberNames.get(item.owner_user_id) ?? "Household member"}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button type="button" variant="ghost" onClick={() => startEdit(item)}>
+                          <Edit3 className="h-4 w-4" aria-hidden="true" />
+                          Edit
+                        </Button>
+                        <Button type="button" variant="secondary" disabled={deletingId === item.id} onClick={() => void handleDelete(item)}>
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </Card>
       ) : null}
 
@@ -723,6 +927,11 @@ export function BudgetPage() {
                 </div>
 
                 {error ? <WarningBanner tone="strong">{error}</WarningBanner> : null}
+                {formDuplicateMatches.length ? (
+                  <WarningBanner>
+                    This looks similar to {formDuplicateMatches.map((item) => item.item_name).join(", ")}. Save it only if it is a separate payment or income.
+                  </WarningBanner>
+                ) : null}
 
                 <div>
                   <p className="text-sm font-semibold text-moss">Step {formStep} of 5</p>

@@ -449,6 +449,22 @@ export function OnboardingPage() {
               </Button>
             </div>
           </Card>
+        ) : currentMember?.budget_setup_completed_at && setupChoice === "ask" && currentUserItems.length === 0 ? (
+          <Card className="mx-auto max-w-2xl">
+            <p className="text-sm font-semibold text-moss">Setup complete</p>
+            <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">Your shared household space is ready.</h2>
+            <p className="mt-2 text-sm leading-6 text-ink/65">
+              You can use the dashboard now. Add or update income, bills, repayments, savings, and shared expenses from the Budget page whenever something changes.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Button type="button" onClick={() => navigate("/", { replace: true })}>
+                Open dashboard
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => navigate("/budget", { replace: true })}>
+                Review budget
+              </Button>
+            </div>
+          </Card>
         ) : setupChoice === "ask" && currentUserItems.length === 0 ? (
           <Card className="mx-auto max-w-2xl">
             <p className="text-sm font-semibold text-moss">Step 4</p>

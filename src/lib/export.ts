@@ -1,5 +1,5 @@
 import type { AiInsight, BudgetItem, BudgetLimit, BudgetMonth, Category, Expense, Household, HouseholdMember } from "../types";
-import { spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "./budget";
+import { budgetItemsForMonthlyTotals, spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "./budget";
 import { currency } from "./format";
 
 function downloadBlob(filename: string, content: BlobPart, type: string) {
@@ -65,12 +65,14 @@ export async function exportSummaryPdf(params: {
 }) {
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF();
-  const manualPlanned = params.budgetItems?.length ? totalBudgetItemMonthlyPlannedExpenses(params.budgetItems) : 0;
-  const manualIncome = params.budgetItems?.length ? totalBudgetItemMonthlyIncome(params.budgetItems) : 0;
-  const planned = manualPlanned > 0 ? manualPlanned : totalBudget(params.budgetMonth, params.limits);
+  const activeBudgetItems = (params.budgetItems ?? []).filter((item) => item.is_active && !item.archived_at);
+  const budgetItemsForTotals = budgetItemsForMonthlyTotals(activeBudgetItems);
+  const manualPlanned = activeBudgetItems.length ? totalBudgetItemMonthlyPlannedExpenses(budgetItemsForTotals) : 0;
+  const manualIncome = activeBudgetItems.length ? totalBudgetItemMonthlyIncome(budgetItemsForTotals) : 0;
+  const planned = activeBudgetItems.length ? manualPlanned : totalBudget(params.budgetMonth, params.limits);
   const spent = totalSpent(params.expenses);
   const remaining = planned - spent;
-  const totalIncome = manualIncome > 0 ? manualIncome : Number(params.budgetMonth?.total_income ?? 0);
+  const totalIncome = activeBudgetItems.length ? manualIncome : Number(params.budgetMonth?.total_income ?? 0);
   let y = 18;
 
   doc.setFont("helvetica", "bold");

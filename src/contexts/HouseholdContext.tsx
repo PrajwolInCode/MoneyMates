@@ -98,9 +98,12 @@ type HouseholdContextValue = {
   createHousehold: (name: string) => Promise<void>;
   joinHousehold: (joinCode: string) => Promise<void>;
   addExpense: (input: AddExpenseInput) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
   saveBudget: (input: { totalIncome: number; plannedBudget: number; limits: BudgetLimitInput[] }) => Promise<void>;
   saveBudgetItem: (input: BudgetItemInput, id?: string) => Promise<void>;
   archiveBudgetItem: (id: string) => Promise<void>;
+  deleteBudgetItem: (id: string) => Promise<void>;
+  clearLegacyMonthlyBudget: () => Promise<void>;
   completeBudgetSetup: () => Promise<void>;
   createCategory: (name: string) => Promise<void>;
   saveRecurringPayment: (input: { name: string; amount: number; dueDay: number; categoryId: string }) => Promise<void>;
@@ -888,6 +891,21 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         });
         await refresh();
       },
+      deleteExpense: async (id) => {
+        if (!household || !user) throw new Error("You need a household before deleting expenses.");
+        const expense = expenses.find((item) => item.id === id);
+        if (expense && expense.user_id !== user.id) {
+          throw new Error("Only the member who added this transaction can delete it.");
+        }
+        const { error: deleteError } = await supabase
+          .from("expenses")
+          .delete()
+          .eq("id", id)
+          .eq("household_id", household.id)
+          .eq("user_id", user.id);
+        if (deleteError) throw deleteError;
+        await refresh();
+      },
       saveBudget: async ({ totalIncome, plannedBudget, limits }) => {
         const targetMonth = await getOrCreateBudgetMonth();
         const { data: updatedMonth, error: monthError } = await supabase
@@ -1116,6 +1134,67 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           body: archivedItem?.item_name ?? "Budget item archived",
           url: "/budget",
         });
+        await refresh();
+      },
+      deleteBudgetItem: async (id) => {
+        if (!household) throw new Error("Create or join a household first.");
+        const deletedItem = budgetItems.find((item) => item.id === id);
+        const writeTables = uniqueTables([deletedItem?.source_table, "planned_budget_items", "budget_items"]);
+        let deleted = false;
+        let lastDeleteError: unknown = null;
+
+        for (const tableName of writeTables) {
+          const { data: deletedRows, error: deleteError } = await supabase
+            .from(tableName)
+            .delete()
+            .eq("id", id)
+            .eq("household_id", household.id)
+            .select("id");
+
+          if (deleteError) {
+            if (isMissingRelation(deleteError) && isMissingRelationForTable(deleteError, tableName)) {
+              lastDeleteError = deleteError;
+              continue;
+            }
+            throw new Error(budgetWriteErrorMessage(deleteError));
+          }
+
+          if ((deletedRows ?? []).length > 0) {
+            deleted = true;
+          }
+        }
+
+        if (!deleted) {
+          throw new Error(errorMessage(lastDeleteError) || "Could not delete budget item because it was not found.");
+        }
+
+        void sendHouseholdPhonePush({
+          householdId: household.id,
+          title: `${currentUserLabel()} removed a budget item`,
+          body: deletedItem?.item_name ?? "Budget item removed",
+          url: "/budget",
+        });
+        await refresh();
+      },
+      clearLegacyMonthlyBudget: async () => {
+        if (!household) throw new Error("Create or join a household first.");
+        if (!budgetMonth) return;
+        if (!isOwner) throw new Error("Only the household owner can clear old monthly totals.");
+
+        const { error: limitDeleteError } = await supabase.from("budget_limits").delete().eq("budget_month_id", budgetMonth.id);
+        if (limitDeleteError) throw limitDeleteError;
+
+        const { data: updatedMonth, error: monthError } = await supabase
+          .from("budget_months")
+          .update({ total_income: 0, planned_budget: 0 })
+          .eq("id", budgetMonth.id)
+          .eq("household_id", household.id)
+          .select("*")
+          .single();
+        if (monthError) throw monthError;
+
+        setBudgetLimits([]);
+        setBudgetMonth(updatedMonth as BudgetMonth);
         await refresh();
       },
       completeBudgetSetup: async () => {

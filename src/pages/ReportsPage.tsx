@@ -9,7 +9,7 @@ import { PageHeader } from "../components/PageHeader";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
-import { spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
+import { budgetItemsForMonthlyTotals, spendingByCategory, spendingByPerson, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
 import { formatMonthLabel, getMonthBounds, monthInputToStart, monthStartToInput } from "../lib/date";
 import { exportSummaryPdf, exportTransactionsCsv, exportTransactionsExcel } from "../lib/export";
 import { currency } from "../lib/format";
@@ -121,10 +121,12 @@ export function ReportsPage() {
   const selectedMonthInput = monthStartToInput(monthStart);
   const monthLabel = formatMonthLabel(selectedStart);
   const spent = useMemo(() => totalSpent(expenses), [expenses]);
-  const manualPlanned = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(budgetItems), [budgetItems]);
-  const manualIncome = useMemo(() => totalBudgetItemMonthlyIncome(budgetItems), [budgetItems]);
-  const planned = useMemo(() => (manualPlanned > 0 ? manualPlanned : totalBudget(budgetMonth, limits)), [budgetMonth, limits, manualPlanned]);
-  const totalIncome = manualIncome > 0 ? manualIncome : Number(budgetMonth?.total_income ?? 0);
+  const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
+  const budgetItemsForTotals = useMemo(() => budgetItemsForMonthlyTotals(activeBudgetItems), [activeBudgetItems]);
+  const manualPlanned = useMemo(() => totalBudgetItemMonthlyPlannedExpenses(budgetItemsForTotals), [budgetItemsForTotals]);
+  const manualIncome = useMemo(() => totalBudgetItemMonthlyIncome(budgetItemsForTotals), [budgetItemsForTotals]);
+  const planned = useMemo(() => (activeBudgetItems.length ? manualPlanned : totalBudget(budgetMonth, limits)), [activeBudgetItems.length, budgetMonth, limits, manualPlanned]);
+  const totalIncome = activeBudgetItems.length ? manualIncome : Number(budgetMonth?.total_income ?? 0);
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, limits), [expenses, categories, limits]);
   const peopleRows = useMemo(() => spendingByPerson(expenses, members), [expenses, members]);
 

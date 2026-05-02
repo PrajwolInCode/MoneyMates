@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Copy, Mail, PieChart as PieChartIcon, Plus, UsersRound } from "lucide-react";
+import { AlertTriangle, BarChart3, Copy, Mail, PieChart as PieChartIcon, Plus, Trash2, UsersRound } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -27,7 +27,19 @@ import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
-import { buildCoachPayload, dailyTrend, monthlyAmountForBudgetItem, spendingByCategory, totalBudget, totalBudgetItemMonthlyIncome, totalBudgetItemMonthlyPlannedExpenses, totalSpent } from "../lib/budget";
+import {
+  budgetItemsForMonthlyTotals,
+  buildCoachPayload,
+  dailyTrend,
+  findPotentialDuplicateBudgetItems,
+  findPotentialDuplicateExpenses,
+  monthlyAmountForBudgetItem,
+  spendingByCategory,
+  totalBudget,
+  totalBudgetItemMonthlyIncome,
+  totalBudgetItemMonthlyPlannedExpenses,
+  totalSpent,
+} from "../lib/budget";
 import { requestBudgetCoach } from "../lib/coach";
 import { formatMonthLabel } from "../lib/date";
 import { compactCurrency, currency, personName } from "../lib/format";
@@ -51,53 +63,74 @@ export function DashboardPage() {
     aiInsight,
     notifications,
     monthStart,
+    isOwner,
     saveAiInsight,
+    clearLegacyMonthlyBudget,
   } = useHousehold();
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [dashboardNotice, setDashboardNotice] = useState<string | null>(null);
+  const [clearingLegacy, setClearingLegacy] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
 
   const monthLabel = formatMonthLabel(monthStart);
   const spent = totalSpent(expenses);
   const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
+  const activeBudgetItemsForTotals = useMemo(() => budgetItemsForMonthlyTotals(activeBudgetItems), [activeBudgetItems]);
+  const duplicateBudgetGroups = useMemo(() => findPotentialDuplicateBudgetItems(activeBudgetItems), [activeBudgetItems]);
+  const duplicateExpenseGroups = useMemo(() => findPotentialDuplicateExpenses(expenses), [expenses]);
   const categoryRows = useMemo(() => spendingByCategory(expenses, categories, budgetLimits), [expenses, categories, budgetLimits]);
   const trendRows = useMemo(() => dailyTrend(expenses), [expenses]);
   const legacyMonthlyIncome = Number(budgetMonth?.total_income ?? 0);
   const legacyMonthlyPlan = totalBudget(budgetMonth, budgetLimits);
-  const itemMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItems);
-  const itemMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItems);
+  const hasMemberBudgetItems = activeBudgetItems.length > 0;
+  const itemMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItemsForTotals);
+  const itemMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItemsForTotals);
   const hasLegacyBudgetData = legacyMonthlyIncome > 0 || legacyMonthlyPlan > 0;
-  const hasBudgetPlanData = activeBudgetItems.length > 0 || hasLegacyBudgetData;
+  const useLegacyBudgetData = !hasMemberBudgetItems && hasLegacyBudgetData;
+  const hasBudgetPlanData = hasMemberBudgetItems || useLegacyBudgetData;
   const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length && !hasLegacyBudgetData;
   const currentUserItems = useMemo(
-    () => activeBudgetItems.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
-    [activeBudgetItems, user?.id],
+    () => activeBudgetItemsForTotals.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
+    [activeBudgetItemsForTotals, user?.id],
   );
-  const otherMembers = useMemo(() => members.filter((member) => member.user_id !== user?.id), [members, user?.id]);
-  const otherMembersWithData = useMemo(
-    () => otherMembers.filter((member) => activeBudgetItems.some((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id)),
-    [activeBudgetItems, otherMembers],
+  const currentMember = members.find((member) => member.user_id === user?.id);
+  const memberSetupRows = useMemo(
+    () =>
+      members.map((member) => {
+        const hasData = activeBudgetItems.some((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
+        return {
+          member,
+          hasData,
+          ready: Boolean(member.budget_setup_completed_at || hasData),
+        };
+      }),
+    [activeBudgetItems, members],
   );
-  const currentUserHasBudgetData = currentUserItems.length > 0 || hasLegacyBudgetData;
-  const memberContributorCount = otherMembersWithData.length + (currentUserHasBudgetData ? 1 : 0);
-  const waitingForPartnerData = members.length < 2 || otherMembersWithData.length === 0;
-  const combinedMonthlyIncome = itemMonthlyIncome > 0 ? itemMonthlyIncome : legacyMonthlyIncome;
+  const membersReadyCount = memberSetupRows.filter((item) => item.ready).length;
+  const allMembersReady = memberSetupRows.length > 0 && memberSetupRows.every((item) => item.ready);
+  const currentUserHasBudgetData = currentUserItems.length > 0 || useLegacyBudgetData;
+  const currentUserReady = Boolean(currentMember?.budget_setup_completed_at || currentUserItems.length > 0);
+  const waitingForPartnerData = members.length < 2 || !allMembersReady;
+  const combinedMonthlyIncome = hasMemberBudgetItems ? itemMonthlyIncome : legacyMonthlyIncome;
   const combinedPersonalExpenses = monthlyItemTotal(
-    activeBudgetItems,
+    activeBudgetItemsForTotals,
     (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
   );
   const combinedSharedExpenses = monthlyItemTotal(
-    activeBudgetItems,
+    activeBudgetItemsForTotals,
     (item) => item.scope === "shared" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
   );
-  const combinedDebtRepayments = monthlyItemTotal(activeBudgetItems, (item) => item.type === "debt");
-  const combinedSavingsGoal = monthlyItemTotal(activeBudgetItems, (item) => item.type === "saving" || item.type === "buffer");
-  const combinedMonthlyPlan = combinedPersonalExpenses + combinedSharedExpenses + combinedDebtRepayments + combinedSavingsGoal || itemMonthlyPlan || legacyMonthlyPlan;
+  const combinedDebtRepayments = monthlyItemTotal(activeBudgetItemsForTotals, (item) => item.type === "debt");
+  const combinedSavingsGoal = monthlyItemTotal(activeBudgetItemsForTotals, (item) => item.type === "saving" || item.type === "buffer");
+  const combinedMonthlyPlan = hasMemberBudgetItems
+    ? combinedPersonalExpenses + combinedSharedExpenses + combinedDebtRepayments + combinedSavingsGoal || itemMonthlyPlan
+    : legacyMonthlyPlan;
   const combinedExpectedRemaining = combinedMonthlyIncome - combinedMonthlyPlan;
   const savingsProgressAmount = Math.max(0, combinedMonthlyIncome - spent - (combinedMonthlyPlan - combinedSavingsGoal));
   const savingsProgress = combinedSavingsGoal > 0 ? Math.min(100, (savingsProgressAmount / combinedSavingsGoal) * 100) : 0;
   const itemCurrentUserIncome = monthlyItemTotal(currentUserItems, (item) => item.type === "income");
-  const currentUserIncome = itemCurrentUserIncome > 0 ? itemCurrentUserIncome : itemMonthlyIncome > 0 ? 0 : legacyMonthlyIncome;
+  const currentUserIncome = hasMemberBudgetItems ? itemCurrentUserIncome : legacyMonthlyIncome;
   const currentUserPersonalBills = monthlyItemTotal(
     currentUserItems,
     (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
@@ -129,7 +162,7 @@ export function DashboardPage() {
   const memberBudgetRows = useMemo(
     () =>
       members.map((member, index) => {
-        const memberItems = activeBudgetItems.filter((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
+        const memberItems = activeBudgetItemsForTotals.filter((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
         const memberExpenses = monthlyItemTotal(memberItems, (item) => item.type !== "income" && item.type !== "info");
         return {
           name: personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
@@ -138,7 +171,7 @@ export function DashboardPage() {
           Personal: monthlyItemTotal(memberItems, (item) => item.scope === "personal" && item.type !== "income" && item.type !== "info"),
         };
       }),
-    [activeBudgetItems, members],
+    [activeBudgetItemsForTotals, members],
   );
 
   const handleCoach = async () => {
@@ -180,6 +213,35 @@ export function DashboardPage() {
     await navigator.clipboard.writeText(inviteMessage);
     setInviteCopied(true);
   };
+  const handleClearLegacy = async () => {
+    const confirmed = window.confirm("Clear the old monthly plan and category limits for this month? Member budget items and transactions will stay.");
+    if (!confirmed) return;
+    setClearingLegacy(true);
+    setDashboardNotice(null);
+    try {
+      await clearLegacyMonthlyBudget();
+      setDashboardNotice("Old monthly totals cleared. The dashboard now uses member-owned budget items.");
+    } catch (caught) {
+      setDashboardNotice(caught instanceof Error ? caught.message : "Could not clear old monthly totals.");
+    } finally {
+      setClearingLegacy(false);
+    }
+  };
+  const setupEyebrow = waitingForPartnerData ? "Shared household setup" : "Shared household budget";
+  const setupTitle = waitingForPartnerData
+    ? members.length < 2
+      ? currentUserReady
+        ? "Your part is ready. Invite your partner when you want the full household picture."
+        : "Start your part, then invite your partner when you are ready."
+      : currentUserReady
+        ? "Your part is ready. Waiting for the other member to finish their part."
+        : "Add your part so the shared household budget can be completed."
+    : "Your shared household budget is ready to review.";
+  const setupDescription = waitingForPartnerData
+    ? members.length < 2
+      ? "This is a shared budget space. Each member adds their own income, bills, repayments, savings, and shared expenses from their own account."
+      : "MoneyMates will show the full household view once each member has finished setup or added their budget items."
+    : `${membersReadyCount}/${members.length || 1} members are ready. Shared expenses are combined once, and personal items stay under each member.`;
 
   return (
     <div>
@@ -211,6 +273,12 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
+      {dashboardNotice ? (
+        <div className="mb-5">
+          <WarningBanner>{dashboardNotice}</WarningBanner>
+        </div>
+      ) : null}
+
       {household ? (
         <Card className="mb-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -219,57 +287,106 @@ export function DashboardPage() {
                 <UsersRound className="h-5 w-5" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-moss">{waitingForPartnerData ? "Household setup" : "Combined household budget"}</p>
-                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
-                  {waitingForPartnerData
-                    ? currentUserHasBudgetData
-                      ? "Your part is ready. Invite your partner so MoneyMates can build the full household picture."
-                      : "Start your part so MoneyMates can build the household picture."
-                    : "MoneyMates is combining member budget items into one shared plan."}
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-ink/65">
-                  {waitingForPartnerData
-                    ? members.length < 2
-                      ? "Share the household key when you are ready. Your Supabase household data stays unchanged."
-                      : "A household member has joined and can add their income, bills, repayments, expenses, and goals from their account."
-                    : `${memberContributorCount} member${memberContributorCount === 1 ? "" : "s"} have budget data in this plan.`}
-                </p>
+                <p className="text-sm font-semibold text-moss">{setupEyebrow}</p>
+                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">{setupTitle}</h2>
+                <p className="mt-2 text-sm leading-6 text-ink/65">{setupDescription}</p>
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[24rem]">
               <div className="rounded-xl bg-mist px-3 py-3">
-                <p className="text-xs font-semibold uppercase text-ink/45">Members</p>
+                <p className="text-xs font-semibold uppercase text-ink/45">Setup</p>
                 <p className="mt-1 text-lg font-bold text-ink">
-                  {memberContributorCount}/{members.length || 1}
+                  {membersReadyCount}/{members.length || 1}
                 </p>
               </div>
               {hasBudgetPlanData ? (
                 <>
+                  {combinedMonthlyIncome > 0 ? (
                   <div className="rounded-xl bg-mist px-3 py-3">
                     <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
                     <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyIncome)}</p>
                   </div>
+                  ) : null}
+                  {combinedMonthlyPlan > 0 ? (
                   <div className="rounded-xl bg-mist px-3 py-3">
-                    <p className="text-xs font-semibold uppercase text-ink/45">Plan</p>
+                    <p className="text-xs font-semibold uppercase text-ink/45">Planned costs</p>
                     <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyPlan)}</p>
                   </div>
+                  ) : null}
                 </>
+              ) : null}
+              {hasMemberBudgetItems && hasLegacyBudgetData ? (
+                <div className="rounded-xl bg-coral/10 px-3 py-3 sm:col-span-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-coral">Old plan not counted</p>
+                      <p className="mt-1 text-sm font-semibold text-ink">{currency(legacyMonthlyPlan || legacyMonthlyIncome)} came from the old setup.</p>
+                    </div>
+                    {isOwner ? (
+                      <Button type="button" variant="secondary" loading={clearingLegacy} onClick={() => void handleClearLegacy()}>
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Clear
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
               ) : null}
               {waitingForPartnerData ? (
                 <>
-                  <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyInviteMessage()}>
-                    <Copy className="h-4 w-4" aria-hidden="true" />
-                    {inviteCopied ? "Invite copied" : "Copy invite message"}
-                  </Button>
+                  {members.length < 2 ? (
+                    <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyInviteMessage()}>
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      {inviteCopied ? "Invite copied" : "Copy invite message"}
+                    </Button>
+                  ) : null}
                   <Link
-                    to="/onboarding"
+                    to={currentUserReady ? "/budget" : "/onboarding"}
                     className="inline-flex min-h-11 items-center justify-center rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
                   >
-                    Open setup
+                    {currentUserReady ? "Review budget" : "Open setup"}
                   </Link>
                 </>
               ) : null}
             </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {duplicateBudgetGroups.length || duplicateExpenseGroups.length ? (
+        <Card className="mb-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-coral/10 p-2 text-coral">
+              <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-coral">Smart duplicate check</p>
+              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Review items that look repeated.</h2>
+              <p className="mt-2 text-sm leading-6 text-ink/65">
+                Budget duplicates are counted once in the monthly estimate. Transaction duplicates still stay in the record until the member who added them deletes one.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {duplicateBudgetGroups.map((group) => (
+              <div key={group.key} className="rounded-xl border border-coral/20 bg-coral/5 px-3 py-3">
+                <p className="font-semibold text-ink">{group.label}</p>
+                <p className="mt-1 text-sm text-ink/65">
+                  {group.items.length} similar budget items
+                  {group.monthlyAmount === null ? "" : ` at ${currency(group.monthlyAmount)}/month`}
+                </p>
+                <Link className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-ink ring-1 ring-sage hover:ring-moss" to="/budget">
+                  Review budget items
+                </Link>
+              </div>
+            ))}
+            {duplicateExpenseGroups.map((group) => (
+              <div key={group.key} className="rounded-xl border border-coral/20 bg-coral/5 px-3 py-3">
+                <p className="font-semibold text-ink">{group.label}</p>
+                <p className="mt-1 text-sm text-ink/65">
+                  {group.expenses.length} matching transactions on {group.expenses[0]?.spent_on} for {currency(group.amount)}
+                </p>
+              </div>
+            ))}
           </div>
         </Card>
       ) : null}
