@@ -12,6 +12,7 @@ import { InsightsPage } from "./pages/InsightsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TransactionsPage } from "./pages/TransactionsPage";
 
 function AuthRequired({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -119,6 +120,7 @@ export default function App() {
       <Route element={<ProtectedApp />}>
         <Route index element={<DashboardPage />} />
         <Route path="/add" element={<AddExpensePage />} />
+        <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/budget" element={<BudgetPage />} />
         <Route path="/insights" element={<InsightsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
