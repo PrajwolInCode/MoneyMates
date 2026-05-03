@@ -1,10 +1,10 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Lightbulb, Plus, Settings, WalletCards } from "lucide-react";
+import { Home, Lightbulb, ReceiptText, Settings, WalletCards } from "lucide-react";
 import clsx from "clsx";
 
 const items = [
   { label: "Home", href: "/", icon: Home },
-  { label: "Add", href: "/add", icon: Plus },
+  { label: "Spend", href: "/transactions", icon: ReceiptText },
   { label: "Budget", href: "/budget", icon: WalletCards },
   { label: "Coach", href: "/insights", icon: Lightbulb },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -56,7 +56,7 @@ export function DesktopNav() {
             )}
           >
             <Icon className="h-4 w-4" aria-hidden="true" />
-            {item.label === "Home" ? "Dashboard" : item.label}
+            {item.label === "Home" ? "Dashboard" : item.label === "Spend" ? "Transactions" : item.label}
           </Link>
         );
       })}

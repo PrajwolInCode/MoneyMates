@@ -21,7 +21,6 @@ import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
-import { ProgressBar } from "../components/ProgressBar";
 import { RefreshDataButton } from "../components/RefreshDataButton";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
@@ -37,11 +36,10 @@ import {
   spendingByCategory,
   totalBudget,
   totalBudgetItemMonthlyIncome,
-  totalBudgetItemMonthlyPlannedExpenses,
   totalSpent,
 } from "../lib/budget";
 import { requestBudgetCoach } from "../lib/coach";
-import { formatMonthLabel } from "../lib/date";
+import { daysLeftInMonth, formatMonthLabel } from "../lib/date";
 import { compactCurrency, currency, personName } from "../lib/format";
 import type { BudgetItem } from "../types";
 
@@ -75,6 +73,7 @@ export function DashboardPage() {
 
   const monthLabel = formatMonthLabel(monthStart);
   const spent = totalSpent(expenses);
+  const daysLeft = daysLeftInMonth(monthStart);
   const activeBudgetItems = useMemo(() => budgetItems.filter((item) => item.is_active && !item.archived_at), [budgetItems]);
   const activeBudgetItemsForTotals = useMemo(() => budgetItemsForMonthlyTotals(activeBudgetItems), [activeBudgetItems]);
   const duplicateBudgetGroups = useMemo(() => findPotentialDuplicateBudgetItems(activeBudgetItems), [activeBudgetItems]);
@@ -85,33 +84,7 @@ export function DashboardPage() {
   const legacyMonthlyPlan = totalBudget(budgetMonth, budgetLimits);
   const hasMemberBudgetItems = activeBudgetItems.length > 0;
   const itemMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItemsForTotals);
-  const itemMonthlyPlan = totalBudgetItemMonthlyPlannedExpenses(activeBudgetItemsForTotals);
   const hasLegacyBudgetData = legacyMonthlyIncome > 0 || legacyMonthlyPlan > 0;
-  const useLegacyBudgetData = !hasMemberBudgetItems && hasLegacyBudgetData;
-  const hasBudgetPlanData = hasMemberBudgetItems || useLegacyBudgetData;
-  const hasNoHouseholdData = !expenses.length && !budgetItems.length && !budgetLimits.length && !hasLegacyBudgetData;
-  const currentUserItems = useMemo(
-    () => activeBudgetItemsForTotals.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
-    [activeBudgetItemsForTotals, user?.id],
-  );
-  const currentMember = members.find((member) => member.user_id === user?.id);
-  const memberSetupRows = useMemo(
-    () =>
-      members.map((member) => {
-        const hasData = activeBudgetItems.some((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
-        return {
-          member,
-          hasData,
-          ready: Boolean(member.budget_setup_completed_at || hasData),
-        };
-      }),
-    [activeBudgetItems, members],
-  );
-  const membersReadyCount = memberSetupRows.filter((item) => item.ready).length;
-  const allMembersReady = memberSetupRows.length > 0 && memberSetupRows.every((item) => item.ready);
-  const currentUserHasBudgetData = currentUserItems.length > 0 || useLegacyBudgetData;
-  const currentUserReady = Boolean(currentMember?.budget_setup_completed_at || currentUserItems.length > 0);
-  const waitingForPartnerData = members.length < 2 || !allMembersReady;
   const combinedMonthlyIncome = hasMemberBudgetItems ? itemMonthlyIncome : legacyMonthlyIncome;
   const combinedPersonalExpenses = monthlyItemTotal(
     activeBudgetItemsForTotals,
@@ -123,55 +96,41 @@ export function DashboardPage() {
   );
   const combinedDebtRepayments = monthlyItemTotal(activeBudgetItemsForTotals, (item) => item.type === "debt");
   const combinedSavingsGoal = monthlyItemTotal(activeBudgetItemsForTotals, (item) => item.type === "saving" || item.type === "buffer");
-  const combinedMonthlyPlan = hasMemberBudgetItems
-    ? combinedPersonalExpenses + combinedSharedExpenses + combinedDebtRepayments + combinedSavingsGoal || itemMonthlyPlan
-    : legacyMonthlyPlan;
-  const combinedExpectedRemaining = combinedMonthlyIncome - combinedMonthlyPlan;
-  const savingsProgressAmount = Math.max(0, combinedMonthlyIncome - spent - (combinedMonthlyPlan - combinedSavingsGoal));
-  const savingsProgress = combinedSavingsGoal > 0 ? Math.min(100, (savingsProgressAmount / combinedSavingsGoal) * 100) : 0;
-  const itemCurrentUserIncome = monthlyItemTotal(currentUserItems, (item) => item.type === "income");
-  const currentUserIncome = hasMemberBudgetItems ? itemCurrentUserIncome : legacyMonthlyIncome;
-  const currentUserPersonalBills = monthlyItemTotal(
-    currentUserItems,
-    (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+  const remaining = combinedMonthlyIncome > 0 ? combinedMonthlyIncome - spent : 0;
+  const spentPercent = combinedMonthlyIncome > 0 ? Math.min(100, (spent / combinedMonthlyIncome) * 100) : 0;
+  const safeDaily = daysLeft > 0 && remaining > 0 ? remaining / daysLeft : 0;
+
+  const currentUserItems = useMemo(
+    () => activeBudgetItemsForTotals.filter((item) => item.owner_user_id === user?.id || item.created_by === user?.id),
+    [activeBudgetItemsForTotals, user?.id],
   );
-  const currentUserSharedExpenses = monthlyItemTotal(
-    currentUserItems,
-    (item) => item.scope === "shared" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
+  const memberSetupRows = useMemo(
+    () =>
+      members.map((member) => {
+        const hasData = activeBudgetItems.some((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
+        return { member, hasData, ready: Boolean(member.budget_setup_completed_at || hasData) };
+      }),
+    [activeBudgetItems, members],
   );
-  const currentUserDebt = monthlyItemTotal(currentUserItems, (item) => item.type === "debt");
-  const currentUserSavings = monthlyItemTotal(currentUserItems, (item) => item.type === "saving" || item.type === "buffer");
-  const currentUserExpectedRemaining = currentUserIncome - currentUserPersonalBills - currentUserSharedExpenses - currentUserDebt - currentUserSavings;
-  const equationIncome = waitingForPartnerData ? currentUserIncome : combinedMonthlyIncome;
-  const equationPersonal = waitingForPartnerData ? currentUserPersonalBills : combinedPersonalExpenses;
-  const equationShared = waitingForPartnerData ? currentUserSharedExpenses : combinedSharedExpenses;
-  const equationDebt = waitingForPartnerData ? currentUserDebt : combinedDebtRepayments;
-  const equationSavings = waitingForPartnerData ? currentUserSavings : combinedSavingsGoal;
-  const equationRemaining = equationIncome - equationPersonal - equationShared - equationDebt - equationSavings;
-  const actualFlowLeft = equationIncome - spent;
-  const calculatorRows = [
-    { label: "Income", value: equationIncome, show: equationIncome > 0 },
-    { label: "Personal bills", value: -equationPersonal, show: equationPersonal > 0 },
-    { label: "Shared expenses", value: -equationShared, show: equationShared > 0 },
-    { label: "Debt", value: -equationDebt, show: equationDebt > 0 },
-    { label: "Savings", value: -equationSavings, show: equationSavings > 0 },
-    { label: "Tracked spending", value: -spent, show: spent > 0 },
-    { label: "Planned left", value: equationRemaining, show: equationIncome > 0 || equationPersonal > 0 || equationShared > 0 || equationDebt > 0 || equationSavings > 0 },
-    { label: "Actual left", value: actualFlowLeft, show: equationIncome > 0 || spent > 0 },
-  ].filter((item) => item.show);
-  const memberBudgetRows = useMemo(
+  const membersReadyCount = memberSetupRows.filter((item) => item.ready).length;
+  const allMembersReady = memberSetupRows.length > 0 && memberSetupRows.every((item) => item.ready);
+  const currentUserReady = Boolean(members.find((m) => m.user_id === user?.id)?.budget_setup_completed_at || currentUserItems.length > 0);
+  const waitingForPartnerData = members.length < 2 || !allMembersReady;
+
+  const memberSpendingRows = useMemo(
     () =>
       members.map((member, index) => {
+        const memberExpenses = expenses.filter((e) => e.user_id === member.user_id);
         const memberItems = activeBudgetItemsForTotals.filter((item) => item.owner_user_id === member.user_id || item.created_by === member.user_id);
-        const memberExpenses = monthlyItemTotal(memberItems, (item) => item.type !== "income" && item.type !== "info");
         return {
           name: personName(member.profile?.display_name, member.profile?.email ?? `Member ${index + 1}`),
+          spent: memberExpenses.reduce((sum, e) => sum + Number(e.amount), 0),
+          income: monthlyItemTotal(memberItems, (item) => item.type === "income"),
           Income: monthlyItemTotal(memberItems, (item) => item.type === "income"),
-          Expenses: memberExpenses,
-          Personal: monthlyItemTotal(memberItems, (item) => item.scope === "personal" && item.type !== "income" && item.type !== "info"),
+          Expenses: monthlyItemTotal(memberItems, (item) => item.type !== "income" && item.type !== "info"),
         };
       }),
-    [activeBudgetItemsForTotals, members],
+    [activeBudgetItemsForTotals, expenses, members],
   );
 
   const handleCoach = async () => {
@@ -199,11 +158,6 @@ export function DashboardPage() {
     }
   };
 
-  const copyJoinCode = async () => {
-    if (!household?.join_code) return;
-    await navigator.clipboard.writeText(household.join_code);
-    setInviteCopied(true);
-  };
   const inviteMessage = household
     ? `Hi,\n\nI am setting up our MoneyMates household budget so we can see the monthly picture clearly.\n\nCould you join with this household key and add your regular income, bills, repayments, savings goals, and any shared expenses you usually cover?\n\nHousehold key: ${household.join_code}\n\nYou only need your own account. Please do not share passwords or bank login details.\n\nThanks.`
     : "";
@@ -211,6 +165,11 @@ export function DashboardPage() {
   const copyInviteMessage = async () => {
     if (!inviteMessage) return;
     await navigator.clipboard.writeText(inviteMessage);
+    setInviteCopied(true);
+  };
+  const copyJoinCode = async () => {
+    if (!household?.join_code) return;
+    await navigator.clipboard.writeText(household.join_code);
     setInviteCopied(true);
   };
   const handleClearLegacy = async () => {
@@ -227,34 +186,19 @@ export function DashboardPage() {
       setClearingLegacy(false);
     }
   };
-  const setupEyebrow = waitingForPartnerData ? "Shared household setup" : "Shared household budget";
-  const setupTitle = waitingForPartnerData
-    ? members.length < 2
-      ? currentUserReady
-        ? "Your part is ready. Invite your partner when you want the full household picture."
-        : "Start your part, then invite your partner when you are ready."
-      : currentUserReady
-        ? "Your part is ready. Waiting for the other member to finish their part."
-        : "Add your part so the shared household budget can be completed."
-    : "Your shared household budget is ready to review.";
-  const setupDescription = waitingForPartnerData
-    ? members.length < 2
-      ? "This is a shared budget space. Each member adds their own income, bills, repayments, savings, and shared expenses from their own account."
-      : "MoneyMates will show the full household view once each member has finished setup or added their budget items."
-    : `${membersReadyCount}/${members.length || 1} members are ready. Shared expenses are combined once, and personal items stay under each member.`;
 
   return (
     <div>
       <PageHeader
         eyebrow={monthLabel}
-        title="Household dashboard"
-        description="A simple daily view of what has been spent, what remains, and where a small adjustment would help."
+        title="Dashboard"
+        description="Your household's financial picture at a glance."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <MonthSelector />
             <RefreshDataButton className="w-full sm:w-auto" />
             <Link
-              to="/add"
+              to="/transactions"
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink sm:w-auto"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
@@ -264,22 +208,115 @@ export function DashboardPage() {
         }
       />
 
-      {hasNoHouseholdData ? (
-        <Card className="mb-5">
-          <p className="text-sm font-semibold text-moss">No household data yet</p>
-          <p className="mt-2 text-sm leading-6 text-ink/65">
-            This household loaded successfully, but there are no expenses, planned budget items, or legacy category limits for this month.
-          </p>
-        </Card>
-      ) : null}
-
       {dashboardNotice ? (
         <div className="mb-5">
           <WarningBanner>{dashboardNotice}</WarningBanner>
         </div>
       ) : null}
 
-      {household ? (
+      {/* ── SPENDING HERO ── */}
+      {(spent > 0 || combinedMonthlyIncome > 0) ? (
+        <Card className="mb-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-moss">
+                {combinedMonthlyIncome > 0 ? "Monthly budget" : "Spending this month"}
+              </p>
+              <p className="mt-1 text-4xl font-bold tracking-tight text-ink">{currency(spent)}</p>
+              {combinedMonthlyIncome > 0 ? (
+                <p className="mt-1 text-sm text-ink/60">
+                  of {currency(combinedMonthlyIncome)} income &mdash;{" "}
+                  <span className={remaining < 0 ? "font-semibold text-coral" : "font-semibold text-moss"}>
+                    {remaining < 0 ? `${currency(Math.abs(remaining))} over` : `${currency(remaining)} remaining`}
+                  </span>
+                </p>
+              ) : null}
+            </div>
+            {safeDaily > 0 ? (
+              <div className="rounded-2xl bg-mint px-4 py-3 text-center sm:text-right">
+                <p className="text-xs font-semibold uppercase tracking-wide text-moss">Safe to spend today</p>
+                <p className="mt-1 text-2xl font-bold text-moss">{currency(safeDaily)}</p>
+                <p className="mt-0.5 text-xs text-moss/70">{daysLeft} day{daysLeft === 1 ? "" : "s"} left in {monthLabel.split(" ")[0]}</p>
+              </div>
+            ) : null}
+          </div>
+
+          {combinedMonthlyIncome > 0 ? (
+            <div className="mt-5">
+              <div className="flex justify-between text-xs font-semibold text-ink/50 mb-1">
+                <span>{Math.round(spentPercent)}% spent</span>
+                <span>{currency(remaining)} left</span>
+              </div>
+              <div className="h-3 w-full overflow-hidden rounded-full bg-sage/50">
+                <div
+                  className={`h-full rounded-full transition-all ${spentPercent > 90 ? "bg-coral" : spentPercent > 70 ? "bg-amber-400" : "bg-navy"}`}
+                  style={{ width: `${spentPercent}%` }}
+                />
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-4">
+                {combinedPersonalExpenses > 0 ? (
+                  <div className="rounded-xl bg-mist px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase text-ink/45">Personal bills</p>
+                    <p className="mt-1 font-bold text-ink">{currency(combinedPersonalExpenses)}</p>
+                  </div>
+                ) : null}
+                {combinedSharedExpenses > 0 ? (
+                  <div className="rounded-xl bg-mist px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase text-ink/45">Shared</p>
+                    <p className="mt-1 font-bold text-ink">{currency(combinedSharedExpenses)}</p>
+                  </div>
+                ) : null}
+                {combinedDebtRepayments > 0 ? (
+                  <div className="rounded-xl bg-mist px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase text-ink/45">Debt</p>
+                    <p className="mt-1 font-bold text-ink">{currency(combinedDebtRepayments)}</p>
+                  </div>
+                ) : null}
+                {combinedSavingsGoal > 0 ? (
+                  <div className="rounded-xl bg-mist px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase text-ink/45">Savings</p>
+                    <p className="mt-1 font-bold text-ink">{currency(combinedSavingsGoal)}</p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {/* ── MEMBER SPENDING ── */}
+      {memberSpendingRows.length > 0 && memberSpendingRows.some((r) => r.spent > 0 || r.income > 0) ? (
+        <div className={`mb-5 grid gap-3 ${memberSpendingRows.length > 1 ? "sm:grid-cols-2" : ""}`}>
+          {memberSpendingRows.map((row) => (
+            <Card key={row.name} className="p-4">
+              <p className="text-sm font-semibold text-moss">{row.name}</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                {row.income > 0 ? (
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
+                    <p className="mt-1 text-xl font-bold text-ink">{currency(row.income)}</p>
+                  </div>
+                ) : null}
+                <div>
+                  <p className="text-xs font-semibold uppercase text-ink/45">Spent</p>
+                  <p className="mt-1 text-xl font-bold text-ink">{currency(row.spent)}</p>
+                </div>
+                {row.income > 0 ? (
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-ink/45">Remaining</p>
+                    <p className={`mt-1 text-xl font-bold ${row.income - row.spent < 0 ? "text-coral" : "text-ink"}`}>
+                      {currency(row.income - row.spent)}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
+      {/* ── HOUSEHOLD SETUP / INVITE ── */}
+      {household && waitingForPartnerData ? (
         <Card className="mb-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
@@ -287,103 +324,73 @@ export function DashboardPage() {
                 <UsersRound className="h-5 w-5" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-moss">{setupEyebrow}</p>
-                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">{setupTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-ink/65">{setupDescription}</p>
+                <p className="text-sm font-semibold text-moss">
+                  {members.length < 2 ? "Invite your partner" : "Waiting for household members"}
+                </p>
+                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
+                  {members.length < 2
+                    ? currentUserReady
+                      ? "Your part is done. Share the household key to see the full picture."
+                      : "Start your budget, then invite your partner."
+                    : `${membersReadyCount}/${members.length} members have added their budget.`}
+                </h2>
               </div>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[24rem]">
-              <div className="rounded-xl bg-mist px-3 py-3">
-                <p className="text-xs font-semibold uppercase text-ink/45">Setup</p>
-                <p className="mt-1 text-lg font-bold text-ink">
-                  {membersReadyCount}/{members.length || 1}
-                </p>
-              </div>
-              {hasBudgetPlanData ? (
-                <>
-                  {combinedMonthlyIncome > 0 ? (
-                  <div className="rounded-xl bg-mist px-3 py-3">
-                    <p className="text-xs font-semibold uppercase text-ink/45">Income</p>
-                    <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyIncome)}</p>
-                  </div>
-                  ) : null}
-                  {combinedMonthlyPlan > 0 ? (
-                  <div className="rounded-xl bg-mist px-3 py-3">
-                    <p className="text-xs font-semibold uppercase text-ink/45">Planned costs</p>
-                    <p className="mt-1 text-lg font-bold text-ink">{currency(combinedMonthlyPlan)}</p>
-                  </div>
-                  ) : null}
-                </>
+            <div className="flex flex-col gap-2 sm:flex-row lg:flex-col lg:items-stretch">
+              {members.length < 2 ? (
+                <Button type="button" variant="secondary" onClick={() => void copyInviteMessage()}>
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                  {inviteCopied ? "Copied!" : "Copy invite"}
+                </Button>
               ) : null}
-              {hasMemberBudgetItems && hasLegacyBudgetData ? (
-                <div className="rounded-xl bg-coral/10 px-3 py-3 sm:col-span-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-coral">Old plan not counted</p>
-                      <p className="mt-1 text-sm font-semibold text-ink">{currency(legacyMonthlyPlan || legacyMonthlyIncome)} came from the old setup.</p>
-                    </div>
-                    {isOwner ? (
-                      <Button type="button" variant="secondary" loading={clearingLegacy} onClick={() => void handleClearLegacy()}>
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        Clear
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-              {waitingForPartnerData ? (
-                <>
-                  {members.length < 2 ? (
-                    <Button type="button" variant="secondary" className="sm:col-span-2" onClick={() => void copyInviteMessage()}>
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                      {inviteCopied ? "Invite copied" : "Copy invite message"}
-                    </Button>
-                  ) : null}
-                  <Link
-                    to={currentUserReady ? "/budget" : "/onboarding"}
-                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
-                  >
-                    {currentUserReady ? "Review budget" : "Open setup"}
-                  </Link>
-                </>
+              <Link
+                to={currentUserReady ? "/budget" : "/onboarding"}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
+              >
+                {currentUserReady ? "Review budget" : "Open setup"}
+              </Link>
+              {hasMemberBudgetItems && hasLegacyBudgetData && isOwner ? (
+                <Button type="button" variant="ghost" loading={clearingLegacy} onClick={() => void handleClearLegacy()}>
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Clear old plan
+                </Button>
               ) : null}
             </div>
           </div>
         </Card>
       ) : null}
 
-      {duplicateBudgetGroups.length || duplicateExpenseGroups.length ? (
+      {/* ── DUPLICATES ── */}
+      {(duplicateBudgetGroups.length > 0 || duplicateExpenseGroups.length > 0) ? (
         <Card className="mb-5">
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-coral/10 p-2 text-coral">
               <AlertTriangle className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-coral">Smart duplicate check</p>
-              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Review items that look repeated.</h2>
-              <p className="mt-2 text-sm leading-6 text-ink/65">
-                Budget duplicates are counted once in the monthly estimate. Transaction duplicates still stay in the record until the member who added them deletes one.
+              <p className="text-sm font-semibold text-coral">Possible duplicates found</p>
+              <p className="mt-1 text-sm leading-6 text-ink/65">
+                Budget duplicates are counted once. Transaction duplicates stay until the member removes one.
               </p>
             </div>
           </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {duplicateBudgetGroups.map((group) => (
-              <div key={group.key} className="rounded-xl border border-coral/20 bg-coral/5 px-3 py-3">
-                <p className="font-semibold text-ink">{group.label}</p>
-                <p className="mt-1 text-sm text-ink/65">
-                  {group.items.length} similar budget items
-                  {group.monthlyAmount === null ? "" : ` at ${currency(group.monthlyAmount)}/month`}
-                </p>
-                <Link className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl bg-white px-3 py-2 text-sm font-semibold text-ink ring-1 ring-sage hover:ring-moss" to="/budget">
-                  Review budget items
+              <div key={group.key} className="flex items-center justify-between rounded-xl border border-coral/20 bg-coral/5 px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold text-ink">{group.label}</p>
+                  <p className="text-xs text-ink/60">{group.items.length} similar budget items</p>
+                </div>
+                <Link className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-ink ring-1 ring-sage" to="/budget">
+                  Review
                 </Link>
               </div>
             ))}
             {duplicateExpenseGroups.map((group) => (
-              <div key={group.key} className="rounded-xl border border-coral/20 bg-coral/5 px-3 py-3">
-                <p className="font-semibold text-ink">{group.label}</p>
-                <p className="mt-1 text-sm text-ink/65">
-                  {group.expenses.length} matching transactions on {group.expenses[0]?.spent_on} for {currency(group.amount)}
+              <div key={group.key} className="rounded-xl border border-coral/20 bg-coral/5 px-3 py-2">
+                <p className="text-sm font-semibold text-ink">{group.label}</p>
+                <p className="text-xs text-ink/60">
+                  {group.expenses.length} matching on {group.expenses[0]?.spent_on} for {currency(group.amount)}
                 </p>
               </div>
             ))}
@@ -391,91 +398,166 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {hasBudgetPlanData ? (
-        <Card className="mb-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      {/* ── CHARTS ── */}
+      <div className="mt-2 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-bold tracking-normal text-ink">Spending by category</h2>
+            <PieChartIcon className="h-5 w-5 text-moss" aria-hidden="true" />
+          </div>
+          {categoryRows.length ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={categoryRows} dataKey="spent" nameKey="category" innerRadius={50} outerRadius={88} paddingAngle={2}>
+                    {categoryRows.map((entry) => (
+                      <Cell key={entry.id} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => currency(Number(value))} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <EmptyState title="No spending yet" message="Add expenses to see the category breakdown." />
+          )}
+        </Card>
+
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-bold tracking-normal text-ink">Income vs expenses by member</h2>
+            <BarChart3 className="h-5 w-5 text-moss" aria-hidden="true" />
+          </div>
+          {memberSpendingRows.some((r) => r.Income > 0 || r.Expenses > 0) ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={memberSpendingRows}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={(v) => compactCurrency(Number(v))} />
+                  <Tooltip formatter={(v) => currency(Number(v))} />
+                  <Legend />
+                  <Bar dataKey="Income" fill="#2f6b57" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="Expenses" fill="#c78f5b" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <EmptyState title="No member plan yet" message="Add income and expenses to see the member comparison." />
+          )}
+        </Card>
+      </div>
+
+      {/* ── TREND + AI COACH ── */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <h2 className="text-xl font-bold tracking-normal text-ink">Daily spending trend</h2>
+          {trendRows.length ? (
+            <div className="mt-4 h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendRows}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={(v) => compactCurrency(Number(v))} />
+                  <Tooltip formatter={(v) => currency(Number(v))} />
+                  <Line type="monotone" dataKey="amount" stroke="#0f3d3e" strokeWidth={3} dot={{ r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <EmptyState title="No trend yet" message="Daily spending appears once expenses are saved." />
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-moss">Monthly budget calculator</p>
-              <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">
-                {equationRemaining >= 0 ? "This plan leaves money to work with." : "This plan needs a small adjustment."}
+              <p className="text-sm font-semibold text-moss">AI Budget Coach</p>
+              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
+                {aiInsight?.summary ?? "Get a personalised read on your spending this month."}
               </h2>
-              <p className="mt-2 text-sm leading-6 text-ink/65">
-                This is your monthly plan, not a bank balance. It shows what should be left after regular income, expenses, debt, and savings.
-              </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${equationRemaining >= 0 ? "bg-mint text-moss" : "bg-coral/10 text-coral"}`}>
-                Planned left: {currency(equationRemaining)}
-              </div>
-              <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${actualFlowLeft >= 0 ? "bg-sage/60 text-navy" : "bg-coral/10 text-coral"}`}>
-                Actual left: {currency(actualFlowLeft)}
-              </div>
+            <Button onClick={handleCoach} loading={coachLoading} variant="secondary">
+              Ask Coach
+            </Button>
+          </div>
+          {aiInsight ? (
+            <div className="mt-4 space-y-3 text-sm leading-6 text-ink/70">
+              {aiInsight.today_action ? <p className="rounded-xl bg-mint px-3 py-2 font-medium text-moss">{aiInsight.today_action}</p> : null}
+              {aiInsight.warning ? <WarningBanner>{aiInsight.warning}</WarningBanner> : null}
+              {aiInsight.suggestions?.length ? (
+                <ul className="space-y-1 pl-4">
+                  {aiInsight.suggestions.map((s, i) => (
+                    <li key={i} className="list-disc">{s}</li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-ink/65">
+              The coach sees only summarised budget data &mdash; no bank account access.
+            </p>
+          )}
+          {coachError ? (
+            <div className="mt-3">
+              <WarningBanner tone="strong">{coachError}</WarningBanner>
+            </div>
+          ) : null}
+        </Card>
+      </div>
+
+      {/* ── RECENT TRANSACTIONS ── */}
+      <div className="mt-4">
+        <Card>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold tracking-normal text-ink">Recent transactions</h2>
+            <Link to="/transactions" className="text-sm font-semibold text-moss hover:underline">
+              View all
+            </Link>
           </div>
-          <div className="mt-5 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {calculatorRows.map(({ label, value }) => (
-              <div key={label} className="rounded-xl bg-mist px-3 py-3">
-                <p className="text-xs font-semibold uppercase text-ink/45">{label}</p>
-                <p className="mt-1 text-lg font-bold text-ink">{currency(Number(value))}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 rounded-xl bg-sage/45 px-3 py-2 text-sm leading-6 text-ink/70">
-            Actual flow this month so far: {currency(equationIncome)} income minus {currency(spent)} tracked spending ={" "}
-            <span className="font-bold text-ink">{currency(actualFlowLeft)}</span>.
+          <div className="mt-2">
+            <TransactionsList
+              expenses={expenses}
+              limit={6}
+              emptyTitle="No expenses this month"
+              emptyMessage="Use the month selector to review a past month, or add a new expense."
+            />
           </div>
         </Card>
+      </div>
+
+      {/* ── ACTIVITY FEED ── */}
+      {notifications.length > 0 ? (
+        <div className="mt-4">
+          <Card>
+            <h2 className="text-xl font-bold tracking-normal text-ink">Recent activity</h2>
+            <div className="mt-3 space-y-2">
+              {notifications.slice(0, 6).map((item) => (
+                <div key={item.id} className="rounded-xl border border-sage/70 bg-mist px-3 py-2">
+                  <p className="text-sm font-semibold text-ink">{item.title}</p>
+                  <p className="text-xs text-ink/70">{item.body}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
       ) : null}
 
-      {waitingForPartnerData && currentUserHasBudgetData ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {currentUserIncome > 0 ? (
-            <Card>
-              <p className="text-sm font-semibold text-moss">Your income</p>
-              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserIncome)}</p>
-            </Card>
-          ) : null}
-          {currentUserPersonalBills > 0 ? (
-            <Card>
-              <p className="text-sm font-semibold text-moss">Your personal bills</p>
-              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserPersonalBills)}</p>
-            </Card>
-          ) : null}
-          {currentUserSavings > 0 ? (
-            <Card>
-              <p className="text-sm font-semibold text-moss">Your planned savings</p>
-              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserSavings)}</p>
-            </Card>
-          ) : null}
-          {currentUserIncome > 0 || currentUserPersonalBills > 0 || currentUserSharedExpenses > 0 || currentUserDebt > 0 || currentUserSavings > 0 ? (
-            <Card>
-              <p className="text-sm font-semibold text-moss">Your expected remaining</p>
-              <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(currentUserExpectedRemaining)}</p>
-            </Card>
-          ) : null}
-          {spent > 0 || currentUserIncome > 0 ? (
-            <Card>
-              <p className="text-sm font-semibold text-moss">Your actual left</p>
-              <p className={`mt-2 text-3xl font-bold tracking-normal ${actualFlowLeft < 0 ? "text-coral" : "text-ink"}`}>{currency(actualFlowLeft)}</p>
-              <p className="mt-2 text-xs text-ink/55">After tracked spending this month</p>
-            </Card>
-          ) : null}
-          <Card className="sm:col-span-2 lg:col-span-4">
+      {/* Invite card when all set up */}
+      {household && !waitingForPartnerData && members.length < 2 ? (
+        <div className="mt-4">
+          <Card>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-moss">Your part is ready</p>
-                <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">Your household picture will become clearer when everyone adds their part.</h2>
-                <p className="mt-2 text-sm leading-6 text-ink/65">Invite your partner or household member so MoneyMates can combine income, bills, goals, and shared expenses.</p>
-                {inviteMessage ? (
-                  <p className="mt-3 rounded-xl bg-mist px-3 py-3 text-sm leading-6 text-ink/70">
-                    Could you join with the household key and add your regular income, bills, repayments, savings goals, and any shared expenses you usually cover?
-                  </p>
-                ) : null}
+                <p className="text-sm font-semibold text-moss">Invite your partner</p>
+                <p className="mt-1 text-sm leading-6 text-ink/65">Share the household key so they can add their income and expenses.</p>
               </div>
               <div className="flex flex-col gap-2 sm:items-end">
                 <Button type="button" variant="secondary" onClick={() => void copyInviteMessage()}>
                   <Copy className="h-4 w-4" aria-hidden="true" />
-                  {inviteCopied ? "Invite copied" : "Copy invite"}
+                  {inviteCopied ? "Copied!" : "Copy invite"}
                 </Button>
                 <a
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
@@ -491,182 +573,7 @@ export function DashboardPage() {
             </div>
           </Card>
         </div>
-      ) : !waitingForPartnerData ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Card>
-            <p className="text-sm font-semibold text-moss">Combined income</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedMonthlyIncome)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Combined expenses</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedMonthlyPlan)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Shared expenses</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedSharedExpenses)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Expected remaining</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(combinedExpectedRemaining)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Actual spending this month</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(spent)}</p>
-          </Card>
-          <Card>
-            <p className="text-sm font-semibold text-moss">Savings progress</p>
-            <p className="mt-2 text-3xl font-bold tracking-normal text-ink">{currency(Math.min(savingsProgressAmount, combinedSavingsGoal))}</p>
-            <div className="mt-3">
-              <ProgressBar value={savingsProgress} />
-            </div>
-            <p className="mt-2 text-xs text-ink/55">Goal: {currency(combinedSavingsGoal)}</p>
-          </Card>
-          <Card className="sm:col-span-2 lg:col-span-3">
-            <p className="text-sm font-semibold text-moss">Personal expenses by member</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {memberBudgetRows.map((row) => (
-                <div key={row.name} className="rounded-xl bg-mist px-3 py-3">
-                  <p className="text-sm font-semibold text-ink">{row.name}</p>
-                  <p className="mt-1 text-lg font-bold text-ink">{currency(row.Personal)}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
       ) : null}
-
-      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-normal text-ink">Household spending categories</h2>
-            <PieChartIcon className="h-5 w-5 text-moss" aria-hidden="true" />
-          </div>
-          {categoryRows.length ? (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={categoryRows} dataKey="spent" nameKey="category" innerRadius={54} outerRadius={92} paddingAngle={2}>
-                    {categoryRows.map((entry) => (
-                      <Cell key={entry.id} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => currency(Number(value))} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <EmptyState title="No category spending yet" message="Add expenses to see a simple household category split." />
-          )}
-        </Card>
-
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-normal text-ink">Income vs expenses by member</h2>
-            <BarChart3 className="h-5 w-5 text-moss" aria-hidden="true" />
-          </div>
-          {memberBudgetRows.some((row) => row.Income > 0 || row.Expenses > 0) ? (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={memberBudgetRows}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={(value) => compactCurrency(Number(value))} />
-                  <Tooltip formatter={(value) => currency(Number(value))} />
-                  <Legend />
-                  <Bar dataKey="Income" fill="#2f6b57" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="Expenses" fill="#c78f5b" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <EmptyState title="No member plan yet" message="Add income and expenses to compare the member split." />
-          )}
-        </Card>
-      </div>
-
-      <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card>
-          <h2 className="text-xl font-bold tracking-normal text-ink">Actual spending this month</h2>
-          {trendRows.length ? (
-            <div className="mt-4 h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendRows}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" />
-                  <YAxis tickFormatter={(value) => compactCurrency(Number(value))} />
-                  <Tooltip formatter={(value) => currency(Number(value))} />
-                  <Line type="monotone" dataKey="amount" stroke="#0f3d3e" strokeWidth={3} dot={{ r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <EmptyState title="No trend yet" message="Daily spending appears once expenses are saved." />
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-moss">Ask Coach</p>
-              <h2 className="mt-1 text-xl font-bold tracking-normal text-ink">
-                {aiInsight?.summary ?? "MoneyMates can look at your plan and suggest small ways to improve this month."}
-              </h2>
-            </div>
-            <Button onClick={handleCoach} loading={coachLoading} variant="secondary">
-              Ask Coach
-            </Button>
-          </div>
-          {aiInsight ? (
-            <div className="mt-4 space-y-3 text-sm leading-6 text-ink/70">
-              <p>{aiInsight.today_action}</p>
-              {aiInsight.warning ? <WarningBanner>{aiInsight.warning}</WarningBanner> : null}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm leading-6 text-ink/65">The coach only receives summarized monthly budget data, not raw account access.</p>
-          )}
-          {coachError ? (
-            <div className="mt-3">
-              <WarningBanner tone="strong">{coachError}</WarningBanner>
-            </div>
-          ) : null}
-        </Card>
-      </div>
-
-
-      <div className="mt-5">
-        <Card>
-          <h2 className="text-xl font-bold tracking-normal text-ink">Real-time activity feed</h2>
-          <div className="mt-3 space-y-2">
-            {notifications.length ? (
-              notifications.slice(0, 8).map((item) => (
-                <div key={item.id} className="rounded-xl border border-sage/70 bg-mist px-3 py-2">
-                  <p className="text-sm font-semibold text-ink">{item.title}</p>
-                  <p className="text-xs text-ink/70">{item.body}</p>
-                </div>
-              ))
-            ) : (
-              <p className="rounded-xl border border-dashed border-sage/80 bg-white px-3 py-4 text-sm text-ink/60">
-                No household activity yet. Add an expense and it will appear here in real time.
-              </p>
-            )}
-          </div>
-        </Card>
-      </div>
-      <div className="mt-5">
-        <Card>
-          <h2 className="text-xl font-bold tracking-normal text-ink">Recent transactions</h2>
-          <div className="mt-2">
-            <TransactionsList
-              expenses={expenses}
-              limit={6}
-              emptyTitle="No expenses for this month yet"
-              emptyMessage="Use the month selector to review another month, or add an expense for this one."
-            />
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }

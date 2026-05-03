@@ -697,13 +697,27 @@ export function BudgetPage() {
   ];
   const visiblePlanSections = planSections.filter((section) => section.items.length > 0);
 
+  // Per-member income summary for the minimalist income section
+  const memberIncomeRows = useMemo(
+    () =>
+      members.map((member, index) => {
+        const name = memberNames.get(member.user_id) ?? `Member ${index + 1}`;
+        const memberIncome = activeItemsForTotals
+          .filter((item) => (item.owner_user_id === member.user_id || item.created_by === member.user_id) && item.type === "income" && !budgetItemNeedsAmount(item))
+          .reduce((sum, item) => sum + monthlyValue(item), 0);
+        return { userId: member.user_id, name, income: memberIncome };
+      }),
+    [activeItemsForTotals, memberNames, members],
+  );
+  const hasAnyMemberIncome = memberIncomeRows.some((r) => r.income > 0);
+
   return (
     <div className="pb-24 md:pb-0">
       {toast ? <Toast message={toast} /> : null}
       <PageHeader
         eyebrow={formatMonthLabel(monthStart)}
-        title="Monthly money plan"
-        description="Add income, bills, spending, and savings so MoneyMates can show what is left and where you can adjust."
+        title="Monthly budget"
+        description="Set your income, bills, and goals so MoneyMates can show what's left and where to adjust."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <MonthSelector />
@@ -727,6 +741,58 @@ export function BudgetPage() {
           <WarningBanner tone="strong">Budget items could not load. Your expenses and household data are still safe.</WarningBanner>
         </div>
       ) : null}
+
+      {/* ── INCOME BY MEMBER (minimalist) ── */}
+      <Card className="mb-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-moss">Household income</p>
+            <p className="mt-1 text-3xl font-bold tracking-tight text-ink">{currency(monthlyIncome)}<span className="text-base font-normal text-ink/50">/month</span></p>
+          </div>
+          <button
+            type="button"
+            className="rounded-xl border border-sage bg-mist px-3 py-2 text-sm font-semibold text-ink hover:border-moss"
+            onClick={() => openAddChoice(ADD_CHOICES.find((c) => c.id === "income")!)}
+          >
+            <Plus className="inline h-4 w-4 mr-1" aria-hidden="true" />
+            Add income
+          </button>
+        </div>
+
+        {hasAnyMemberIncome ? (
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {memberIncomeRows.map((row) => (
+              <div key={row.userId} className="flex items-center justify-between rounded-xl bg-mist px-3 py-2.5">
+                <span className="text-sm font-semibold text-ink">{row.name}</span>
+                <span className="font-bold text-ink">
+                  {row.income > 0 ? <>{currency(row.income)}<span className="text-xs font-normal text-ink/50">/mo</span></> : <span className="text-ink/40 text-sm">No income added</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-ink/55">
+            No income added yet. Each household member can add their own income separately &mdash; the totals combine automatically.
+          </p>
+        )}
+
+        {monthlyIncome > 0 && plannedOutflowTotal > 0 ? (
+          <div className="mt-4 border-t border-sage pt-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-ink/60">Income minus planned costs</span>
+              <span className={`font-bold ${plannedRemaining < 0 ? "text-coral" : "text-moss"}`}>
+                {plannedRemaining < 0 ? "−" : "+"}{currency(Math.abs(plannedRemaining))}/mo
+              </span>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-sage/50">
+              <div
+                className={`h-full rounded-full ${plannedRemaining < 0 ? "bg-coral" : "bg-navy"}`}
+                style={{ width: `${Math.min(100, (plannedOutflowTotal / monthlyIncome) * 100)}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+      </Card>
 
       {hasLegacyMonthlyTotals ? (
         <Card className="mb-5">
