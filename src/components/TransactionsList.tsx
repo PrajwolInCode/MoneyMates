@@ -56,6 +56,14 @@ export function TransactionsList({ expenses, limit, emptyTitle = "No expenses ye
     }
   };
 
+  const displayTitle = (expense: Expense) => {
+    const merchant = expense.merchant?.trim();
+    if (merchant) return merchant;
+    const note = expense.note?.trim();
+    if (expense.category?.name === "Other" && note) return note;
+    return expense.category?.name ?? "Category";
+  };
+
   return (
     <div className="divide-y divide-sage/70">
       {rows.map((expense) => (
@@ -63,7 +71,7 @@ export function TransactionsList({ expenses, limit, emptyTitle = "No expenses ye
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate font-semibold text-ink">
-                {expense.category?.name ?? "Category"} {expense.note ? <MessageSquare className="ml-1 inline h-3.5 w-3.5 text-moss" aria-label="Has note" /> : null}
+                {displayTitle(expense)} {expense.note ? <MessageSquare className="ml-1 inline h-3.5 w-3.5 text-moss" aria-label="Has note" /> : null}
               </p>
               <p className="truncate text-sm text-ink/60">
                 {formatShortDate(expense.spent_on)} -{" "}

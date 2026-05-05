@@ -20,6 +20,7 @@ export function TransactionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [otherLabel, setOtherLabel] = useState("");
   const [spentOn, setSpentOn] = useState(toISODate(new Date()));
   const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
@@ -58,6 +59,8 @@ export function TransactionsPage() {
   );
 
   const totalSpent = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const isOther = selectedCategory?.name === "Other";
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -71,19 +74,24 @@ export function TransactionsPage() {
       setSaveError("Choose a category.");
       return;
     }
+    if (isOther && !otherLabel.trim()) {
+      setSaveError("Describe this expense when using Other.");
+      return;
+    }
     setSaving(true);
     try {
-      const categoryName = categories.find((c) => c.id === categoryId)?.name ?? "Expense";
+      const categoryName = isOther && otherLabel.trim() ? otherLabel.trim() : (categories.find((c) => c.id === categoryId)?.name ?? "Expense");
       await addExpense({
         amount: parsedAmount,
         category_id: categoryId,
         spent_on: spentOn,
         merchant: merchant.trim(),
-        note: note.trim(),
+        note: isOther && otherLabel.trim() ? otherLabel.trim() : note.trim(),
       });
       setAmount("");
       setMerchant("");
       setNote("");
+      setOtherLabel("");
       setShowForm(false);
       setToast(`Added: ${categoryName} – ${currency(parsedAmount)}`);
     } catch (e) {
@@ -194,13 +202,21 @@ export function TransactionsPage() {
                 />
               </FormField>
               <FormField label="Category">
-                <select className={inputClass} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <select className={inputClass} value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setOtherLabel(""); }}>
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
                 </select>
+                {isOther ? (
+                  <input
+                    className={`${inputClass} mt-2`}
+                    value={otherLabel}
+                    onChange={(e) => setOtherLabel(e.target.value)}
+                    placeholder="Type retailer or what this was for"
+                  />
+                ) : null}
               </FormField>
               <FormField label="Date">
                 <input className={inputClass} type="date" value={spentOn} onChange={(e) => setSpentOn(e.target.value)} />
