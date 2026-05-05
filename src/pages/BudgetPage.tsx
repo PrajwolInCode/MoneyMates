@@ -385,6 +385,13 @@ export function BudgetPage() {
   const plannedOutflowTotal = personalBillsTotal + sharedExpensesTotal + debtRepaymentsTotal + savingsGoalTotal;
   const plannedRemaining = monthlyIncome - plannedOutflowTotal;
   const actualRemaining = monthlyIncome - actualSpent;
+  const currentDate = new Date();
+  const monthDate = new Date(monthStart);
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  const dayOfMonth = Math.min(currentDate.getDate(), daysInMonth);
+  const monthProgressRatio = daysInMonth > 0 ? dayOfMonth / daysInMonth : 0;
+  const paceSpendTarget = plannedOutflowTotal * monthProgressRatio;
+  const paceVariance = actualSpent - paceSpendTarget;
   const hasActualSpending = actualSpent > 0;
   const budgetSummaryCards = [
     { label: "Household monthly income", value: monthlyIncome, show: monthlyIncome > 0 },
@@ -717,7 +724,7 @@ export function BudgetPage() {
       <PageHeader
         eyebrow={formatMonthLabel(monthStart)}
         title="Monthly budget"
-        description="Set your income, bills, and goals so MoneyMates can show what's left and where to adjust."
+        description="Budget is your monthly plan (income, bills, debt, savings). Add expense records what you actually spent so you can compare plan vs reality."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <MonthSelector />
@@ -920,6 +927,18 @@ export function BudgetPage() {
             </Card>
           ))}
         </div>
+      ) : null}
+
+      {hasBudgetData && plannedOutflowTotal > 0 ? (
+        <Card className="mt-5">
+          <p className="text-sm font-semibold text-moss">Spending pace check</p>
+          <p className="mt-1 text-sm text-ink/65">
+            By day {dayOfMonth} of {daysInMonth}, a steady plan would be about {currency(paceSpendTarget)} spent.
+          </p>
+          <p className={`mt-2 text-xl font-bold ${paceVariance > 0 ? "text-coral" : "text-moss"}`}>
+            {paceVariance > 0 ? `${currency(Math.abs(paceVariance))} over pace` : `${currency(Math.abs(paceVariance))} under pace`}
+          </p>
+        </Card>
       ) : null}
 
       {hasBudgetData && moneyEquationRows.length ? (
