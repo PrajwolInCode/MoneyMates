@@ -105,7 +105,7 @@ type HouseholdContextValue = {
   deleteBudgetItem: (id: string) => Promise<void>;
   clearLegacyMonthlyBudget: () => Promise<void>;
   completeBudgetSetup: () => Promise<void>;
-  createCategory: (name: string) => Promise<void>;
+  createCategory: (name: string) => Promise<string>;
   saveRecurringPayment: (input: { name: string; amount: number; dueDay: number; categoryId: string }) => Promise<void>;
   deleteRecurringPayment: (id: string) => Promise<void>;
   saveAiInsight: (response: CoachResponse) => Promise<void>;
@@ -1215,15 +1215,20 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       },
       createCategory: async (name) => {
         if (!household) throw new Error("Create a household first.");
-        const { error: categoryError } = await supabase.from("categories").insert({
-          household_id: household.id,
-          name,
-          color: "#2f6b57",
-          icon: "wallet",
-          is_default: false,
-        });
+        const { data: newCategory, error: categoryError } = await supabase
+          .from("categories")
+          .insert({
+            household_id: household.id,
+            name,
+            color: "#2f6b57",
+            icon: "wallet",
+            is_default: false,
+          })
+          .select("id")
+          .single();
         if (categoryError) throw categoryError;
         await refresh();
+        return newCategory.id as string;
       },
       saveRecurringPayment: async (input) => {
         if (!household || !user) throw new Error("Create a household first.");

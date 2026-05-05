@@ -28,9 +28,10 @@ const QUICK_BUDGET_LINKS = [
 ];
 
 export function AddExpensePage() {
-  const { categories, addExpense } = useHousehold();
+  const { categories, addExpense, createCategory } = useHousehold();
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [otherLabel, setOtherLabel] = useState("");
   const [spentOn, setSpentOn] = useState(toISODate(new Date()));
   const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
@@ -38,6 +39,9 @@ export function AddExpensePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const selectedCategory = categories.find((c) => c.id === categoryId);
+  const isOther = selectedCategory?.name === "Other";
 
   useEffect(() => {
     if (!categoryId && categories[0]) {
@@ -59,6 +63,8 @@ export function AddExpensePage() {
     }
     if (!categoryId) {
       nextErrors.category = "Choose a category.";
+    } else if (isOther && !otherLabel.trim()) {
+      nextErrors.category = "Please describe what this expense is for.";
     }
     if (!spentOn) {
       nextErrors.date = "Choose a date.";
@@ -75,10 +81,24 @@ export function AddExpensePage() {
     setSaving(true);
     try {
       const savedAmount = Number(amount);
-      const categoryName = categories.find((category) => category.id === categoryId)?.name ?? "Expense";
+      let resolvedCategoryId = categoryId;
+      let resolvedCategoryName = selectedCategory?.name ?? "Expense";
+
+      if (isOther && otherLabel.trim()) {
+        const label = otherLabel.trim();
+        const existing = categories.find((c) => c.name.toLowerCase() === label.toLowerCase());
+        if (existing) {
+          resolvedCategoryId = existing.id;
+          resolvedCategoryName = existing.name;
+        } else {
+          resolvedCategoryId = await createCategory(label);
+          resolvedCategoryName = label;
+        }
+      }
+
       await addExpense({
         amount: savedAmount,
-        category_id: categoryId,
+        category_id: resolvedCategoryId,
         spent_on: spentOn,
         merchant: merchant.trim(),
         note: note.trim(),
@@ -86,7 +106,8 @@ export function AddExpensePage() {
       setAmount("");
       setMerchant("");
       setNote("");
-      setToast(`Added expense: ${categoryName} - ${currency(savedAmount)}.`);
+      setOtherLabel("");
+      setToast(`Added expense: ${resolvedCategoryName} - ${currency(savedAmount)}.`);
     } catch (caught) {
       setSaveError(caught instanceof Error ? caught.message : "Could not save expense.");
     } finally {
@@ -123,13 +144,22 @@ export function AddExpensePage() {
           </FormField>
 
           <FormField label="Category" error={errors.category}>
-            <select className={inputClass} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            <select className={inputClass} value={categoryId} onChange={(event) => { setCategoryId(event.target.value); setOtherLabel(""); }}>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
               ))}
             </select>
+            {isOther && (
+              <input
+                className={`${inputClass} mt-2`}
+                value={otherLabel}
+                onChange={(event) => setOtherLabel(event.target.value)}
+                placeholder="What is this expense for?"
+                autoFocus
+              />
+            )}
           </FormField>
 
           <FormField label="Date" error={errors.date}>
