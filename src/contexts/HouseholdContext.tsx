@@ -30,6 +30,16 @@ type AddExpenseInput = {
   spent_on: string;
   merchant?: string;
   note?: string;
+  card_id?: string | null;
+};
+
+type UpdateExpenseInput = {
+  category_id: string;
+  amount: number;
+  spent_on: string;
+  merchant?: string;
+  note?: string;
+  card_id?: string | null;
 };
 
 type BudgetLimitInput = {
@@ -98,6 +108,7 @@ type HouseholdContextValue = {
   createHousehold: (name: string) => Promise<void>;
   joinHousehold: (joinCode: string) => Promise<void>;
   addExpense: (input: AddExpenseInput) => Promise<void>;
+  updateExpense: (id: string, input: UpdateExpenseInput) => Promise<void>;
   deleteExpense: (id: string) => Promise<void>;
   saveBudget: (input: { totalIncome: number; plannedBudget: number; limits: BudgetLimitInput[] }) => Promise<void>;
   saveBudgetItem: (input: BudgetItemInput, id?: string) => Promise<void>;
@@ -125,6 +136,7 @@ function normalizeExpense(row: any): Expense {
   return {
     ...row,
     amount: Number(row.amount),
+    card_id: row.card_id ?? null,
     category: row.categories ?? row.category ?? null,
     profile: row.profiles ?? row.profile ?? null,
   };
@@ -871,7 +883,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       },
       addExpense: async (input) => {
         if (!household || !user) throw new Error("You need a household before adding expenses.");
-        const { error: expenseError } = await supabase.from("expenses").insert({
+        const baseRow = {
           household_id: household.id,
           user_id: user.id,
           category_id: input.category_id,
@@ -879,7 +891,17 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           spent_on: input.spent_on,
           merchant: input.merchant || null,
           note: input.note || null,
-        });
+        };
+        const rowWithCard = { ...baseRow, card_id: input.card_id || null };
+        let { error: expenseError } = await supabase.from("expenses").insert(rowWithCard);
+        if (expenseError && isMissingColumn(expenseError)) {
+          setDataWarnings((current) => Array.from(new Set([
+            ...current,
+            "Card selection isn't saved yet because the card_id column is missing. Run the latest expenses migration to enable it.",
+          ])));
+          const retry = await supabase.from("expenses").insert(baseRow);
+          expenseError = retry.error;
+        }
         if (expenseError) throw expenseError;
         const categoryName = categories.find((category) => category.id === input.category_id)?.name ?? "Expense";
         const noteText = input.note?.trim() ? ` - Note: ${input.note.trim().slice(0, 140)}` : "";
@@ -889,6 +911,42 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           body: `${categoryName} - $${Number(input.amount).toFixed(2)}${noteText}`,
           url: "/",
         });
+        await refresh();
+      },
+      updateExpense: async (id, input) => {
+        if (!household || !user) throw new Error("You need a household before editing expenses.");
+        const existing = expenses.find((item) => item.id === id);
+        if (existing && existing.user_id !== user.id) {
+          throw new Error("Only the member who added this transaction can edit it.");
+        }
+        const baseRow = {
+          category_id: input.category_id,
+          amount: input.amount,
+          spent_on: input.spent_on,
+          merchant: input.merchant || null,
+          note: input.note || null,
+        };
+        const rowWithCard = { ...baseRow, card_id: input.card_id || null };
+        let { error: updateError } = await supabase
+          .from("expenses")
+          .update(rowWithCard)
+          .eq("id", id)
+          .eq("household_id", household.id)
+          .eq("user_id", user.id);
+        if (updateError && isMissingColumn(updateError)) {
+          setDataWarnings((current) => Array.from(new Set([
+            ...current,
+            "Card selection isn't saved yet because the card_id column is missing. Run the latest expenses migration to enable it.",
+          ])));
+          const retry = await supabase
+            .from("expenses")
+            .update(baseRow)
+            .eq("id", id)
+            .eq("household_id", household.id)
+            .eq("user_id", user.id);
+          updateError = retry.error;
+        }
+        if (updateError) throw updateError;
         await refresh();
       },
       deleteExpense: async (id) => {

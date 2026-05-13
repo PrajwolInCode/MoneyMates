@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { Info, Save } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { CardPicker } from "../components/CardPicker";
 import { FormField } from "../components/FormField";
 import { inputClass } from "../components/inputs";
 import { PageHeader } from "../components/PageHeader";
@@ -19,9 +20,9 @@ type FormErrors = {
 };
 
 const QUICK_BUDGET_LINKS = [
-  { label: "Add income", href: "/budget?add=income" },
-  { label: "Add bill", href: "/budget?add=bill" },
-  { label: "Add shared expense", href: "/budget?add=shared_expense" },
+  { label: "Add income (salary, payment in)", href: "/budget?add=income", tone: "income" },
+  { label: "Add bill or direct debit", href: "/budget?add=bill" },
+  { label: "Add shared household expense", href: "/budget?add=shared_expense" },
   { label: "Add personal expense", href: "/budget?add=personal_expense" },
   { label: "Add debt repayment", href: "/budget?add=debt" },
   { label: "Add savings goal", href: "/budget?add=saving" },
@@ -35,6 +36,7 @@ export function AddExpensePage() {
   const [spentOn, setSpentOn] = useState(toISODate(new Date()));
   const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
+  const [cardId, setCardId] = useState<string | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -102,11 +104,13 @@ export function AddExpensePage() {
         spent_on: spentOn,
         merchant: merchant.trim(),
         note: note.trim(),
+        card_id: cardId,
       });
       setAmount("");
       setMerchant("");
       setNote("");
       setOtherLabel("");
+      setCardId(null);
       setToast(`Added expense: ${resolvedCategoryName} - ${currency(savedAmount)}.`);
     } catch (caught) {
       setSaveError(caught instanceof Error ? caught.message : "Could not save expense.");
@@ -119,21 +123,38 @@ export function AddExpensePage() {
     <div>
       {toast ? <Toast message={toast} /> : null}
       <PageHeader
-        eyebrow="Manual input"
-        title="Add expense"
-        description="Record what was spent, when it happened, and who added it. Small daily accuracy keeps the plan honest."
+        eyebrow="Quick log"
+        title="Add an expense"
+        description="Use this page to record money you spent today. To add income, bills, or savings goals use the shortcuts below."
       />
 
       <Card className="mx-auto max-w-2xl">
-        <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {QUICK_BUDGET_LINKS.map((item) => (
-            <Link key={item.href} className="rounded-xl bg-sage/60 p-3 text-sm font-semibold text-ink hover:bg-sage" to={item.href}>
-              {item.label}
-            </Link>
-          ))}
+        <div className="mb-5">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-moss">
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+            Looking for income or recurring items?
+          </div>
+          <p className="mb-3 text-sm text-ink/60">
+            This form is for one-off purchases. Money in (salary), bills, and savings goals live in the Budget page so they
+            keep updating each month automatically.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {QUICK_BUDGET_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                className={`rounded-xl p-3 text-sm font-semibold hover:bg-sage ${
+                  item.tone === "income" ? "bg-mint text-moss" : "bg-sage/60 text-ink"
+                }`}
+                to={item.href}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
         </div>
+
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <FormField label="Amount" error={errors.amount}>
+          <FormField label="How much was it?" error={errors.amount} hint="Use dollars and cents, for example 42.50">
             <input
               className={inputClass}
               inputMode="decimal"
@@ -143,7 +164,7 @@ export function AddExpensePage() {
             />
           </FormField>
 
-          <FormField label="Category" error={errors.category}>
+          <FormField label="What was it for?" error={errors.category} hint="Pick the closest match. Choose Other to type a new label.">
             <select className={inputClass} value={categoryId} onChange={(event) => { setCategoryId(event.target.value); setOtherLabel(""); }}>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
@@ -162,15 +183,21 @@ export function AddExpensePage() {
             )}
           </FormField>
 
-          <FormField label="Date" error={errors.date}>
+          <FormField label="When did it happen?" error={errors.date}>
             <input className={inputClass} type="date" value={spentOn} onChange={(event) => setSpentOn(event.target.value)} />
           </FormField>
 
-          <FormField label="Merchant or place">
+          <FormField label="Where did you buy it?" hint="Shop, app, or place name. Helps you spot repeat spending later.">
             <input className={inputClass} value={merchant} onChange={(event) => setMerchant(event.target.value)} placeholder="Woolworths" />
           </FormField>
 
-          <FormField label="Note">
+          <CardPicker
+            value={cardId}
+            onChange={setCardId}
+            helperText="Tap the card you paid with so we can show totals per card."
+          />
+
+          <FormField label="Note (optional)" hint="Anything you want to remember about this expense.">
             <textarea
               className={`${inputClass} min-h-28 resize-none`}
               value={note}
