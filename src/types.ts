@@ -108,6 +108,7 @@ export type Expense = {
   spent_on: string;
   merchant?: string | null;
   note?: string | null;
+  card_id?: string | null;
   created_at: string;
   updated_at?: string;
   category?: Category | null;

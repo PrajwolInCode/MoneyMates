@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Plus, Save, X } from "lucide-react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { CardChip } from "../components/CardChip";
+import { CardPicker } from "../components/CardPicker";
 import { FormField } from "../components/FormField";
 import { inputClass } from "../components/inputs";
 import { MonthSelector } from "../components/MonthSelector";
@@ -11,6 +13,7 @@ import { Toast } from "../components/Toast";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
+import { getCard, PAYMENT_CARDS } from "../lib/cards";
 import { toISODate } from "../lib/date";
 import { currency, personName } from "../lib/format";
 
@@ -24,10 +27,12 @@ export function TransactionsPage() {
   const [spentOn, setSpentOn] = useState(toISODate(new Date()));
   const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
+  const [cardId, setCardId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [filterMemberId, setFilterMemberId] = useState<string | null>(null);
+  const [filterCardId, setFilterCardId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!categoryId && categories[0]) setCategoryId(categories[0].id);
@@ -54,9 +59,41 @@ export function TransactionsPage() {
   );
 
   const filteredExpenses = useMemo(
-    () => (filterMemberId ? expenses.filter((e) => e.user_id === filterMemberId) : expenses),
-    [expenses, filterMemberId],
+    () =>
+      expenses.filter((e) => {
+        if (filterMemberId && e.user_id !== filterMemberId) return false;
+        if (filterCardId) {
+          const expenseCardId = e.card_id ?? "__none__";
+          if (expenseCardId !== filterCardId) return false;
+        }
+        return true;
+      }),
+    [expenses, filterMemberId, filterCardId],
   );
+
+  const cardSpending = useMemo(() => {
+    const totals = new Map<string, { card: ReturnType<typeof getCard>; total: number; count: number }>();
+    let untaggedTotal = 0;
+    let untaggedCount = 0;
+    for (const expense of expenses) {
+      if (!expense.card_id) {
+        untaggedTotal += Number(expense.amount);
+        untaggedCount += 1;
+        continue;
+      }
+      const card = getCard(expense.card_id);
+      if (!card) continue;
+      const existing = totals.get(card.id) ?? { card, total: 0, count: 0 };
+      existing.total += Number(expense.amount);
+      existing.count += 1;
+      totals.set(card.id, existing);
+    }
+    const ordered = PAYMENT_CARDS
+      .map((card) => totals.get(card.id))
+      .filter((entry): entry is { card: ReturnType<typeof getCard>; total: number; count: number } => Boolean(entry))
+      .filter((entry) => entry.total > 0);
+    return { rows: ordered, untaggedTotal, untaggedCount };
+  }, [expenses]);
 
   const totalSpent = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
   const selectedCategory = categories.find((c) => c.id === categoryId);
@@ -87,11 +124,13 @@ export function TransactionsPage() {
         spent_on: spentOn,
         merchant: merchant.trim(),
         note: isOther && otherLabel.trim() ? otherLabel.trim() : note.trim(),
+        card_id: cardId,
       });
       setAmount("");
       setMerchant("");
       setNote("");
       setOtherLabel("");
+      setCardId(null);
       setShowForm(false);
       setToast(`Added: ${categoryName} – ${currency(parsedAmount)}`);
     } catch (e) {
@@ -225,6 +264,11 @@ export function TransactionsPage() {
                 <input className={inputClass} value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="Woolworths" />
               </FormField>
             </div>
+            <CardPicker
+              value={cardId}
+              onChange={setCardId}
+              helperText="Tap the card you paid with so we can show totals per card."
+            />
             <FormField label="Note">
               <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" />
             </FormField>
@@ -239,6 +283,58 @@ export function TransactionsPage() {
               </Button>
             </div>
           </form>
+        </Card>
+      ) : null}
+
+      {/* Spending by card */}
+      {(cardSpending.rows.length > 0 || cardSpending.untaggedTotal > 0) ? (
+        <Card className="mb-5">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold text-moss">Spending by card</p>
+            {filterCardId ? (
+              <button className="text-xs font-semibold text-moss hover:underline" onClick={() => setFilterCardId(null)}>
+                Clear filter
+              </button>
+            ) : null}
+          </div>
+          <p className="mb-3 text-xs text-ink/55">Tap a card to filter the list below to just that card's spending.</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {cardSpending.rows.map(({ card, total, count }) => {
+              if (!card) return null;
+              const active = filterCardId === card.id;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => setFilterCardId(active ? null : card.id)}
+                  className={`flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2.5 text-left transition ${
+                    active ? "border-navy ring-2 ring-navy/30" : "border-sage hover:border-moss"
+                  }`}
+                >
+                  <CardChip card={card} size="md" selected={active} />
+                  <div className="min-w-0 text-right">
+                    <p className="truncate text-sm font-bold text-ink">{currency(total)}</p>
+                    <p className="text-[11px] font-medium text-ink/55">{count} txn{count === 1 ? "" : "s"}</p>
+                  </div>
+                </button>
+              );
+            })}
+            {cardSpending.untaggedTotal > 0 ? (
+              <button
+                type="button"
+                onClick={() => setFilterCardId(filterCardId === "__none__" ? null : "__none__")}
+                className={`flex items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2.5 text-left transition ${
+                  filterCardId === "__none__" ? "border-navy ring-2 ring-navy/30" : "border-dashed border-sage hover:border-moss"
+                }`}
+              >
+                <span className="rounded-lg bg-mist px-2 py-1 text-[11px] font-semibold text-ink/70">No card set</span>
+                <div className="min-w-0 text-right">
+                  <p className="truncate text-sm font-bold text-ink">{currency(cardSpending.untaggedTotal)}</p>
+                  <p className="text-[11px] font-medium text-ink/55">{cardSpending.untaggedCount} txn{cardSpending.untaggedCount === 1 ? "" : "s"}</p>
+                </div>
+              </button>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 
