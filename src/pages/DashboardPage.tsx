@@ -19,6 +19,7 @@ import {
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
+import { FinancialFreedomCard } from "../components/FinancialFreedomCard";
 import { IncomeReminderBanner } from "../components/IncomeReminderBanner";
 import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
@@ -288,6 +289,14 @@ export function DashboardPage() {
           ) : null}
         </Card>
       ) : null}
+
+      {/* ── FINANCIAL FREEDOM ── */}
+      <FinancialFreedomCard
+        monthlyIncome={combinedMonthlyIncome}
+        monthlySavings={combinedSavingsGoal}
+        monthlyDebtPaydown={combinedDebtRepayments}
+        monthlyPlannedExpenses={combinedPersonalExpenses + combinedSharedExpenses}
+      />
 
       {/* ── MEMBER SPENDING ── */}
       {memberSpendingRows.length > 0 && memberSpendingRows.some((r) => r.spent > 0 || r.income > 0) ? (
