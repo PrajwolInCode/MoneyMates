@@ -15,9 +15,15 @@ export default {
       },
       boxShadow: {
         soft: "0 18px 50px rgba(20, 44, 37, 0.08)",
+        elevated: "0 1px 0 rgba(20, 44, 37, 0.04), 0 10px 24px -8px rgba(20, 44, 37, 0.12), 0 2px 4px -1px rgba(20, 44, 37, 0.04)",
+        focus: "0 0 0 3px rgba(15, 61, 62, 0.18)",
       },
       fontFamily: {
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+      },
+      letterSpacing: {
+        tightish: "-0.012em",
       },
     },
   },

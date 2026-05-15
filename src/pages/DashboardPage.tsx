@@ -19,8 +19,10 @@ import {
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
+import { IncomeReminderBanner } from "../components/IncomeReminderBanner";
 import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
+import { PaySetupPrompt } from "../components/PaySetupPrompt";
 import { RefreshDataButton } from "../components/RefreshDataButton";
 import { TransactionsList } from "../components/TransactionsList";
 import { WarningBanner } from "../components/WarningBanner";
@@ -213,6 +215,9 @@ export function DashboardPage() {
           <WarningBanner>{dashboardNotice}</WarningBanner>
         </div>
       ) : null}
+
+      <PaySetupPrompt />
+      <IncomeReminderBanner />
 
       {/* ── SPENDING HERO ── */}
       {(spent > 0 || combinedMonthlyIncome > 0) ? (

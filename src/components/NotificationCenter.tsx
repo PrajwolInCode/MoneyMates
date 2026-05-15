@@ -54,7 +54,9 @@ export function NotificationCenter() {
                   onClick={() => {
                     void markNotificationRead(item.id);
                     setOpen(false);
-                    if (item.type.includes("budget")) navigate("/budget");
+                    if (item.type === "expense_comment") navigate("/transactions");
+                    else if (item.type === "income_reminder") navigate("/budget?add=income");
+                    else if (item.type.includes("budget")) navigate("/budget");
                     else if (item.type.includes("ai")) navigate("/insights");
                     else navigate("/");
                   }}

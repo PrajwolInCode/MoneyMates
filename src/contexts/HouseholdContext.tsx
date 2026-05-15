@@ -20,6 +20,7 @@ import type {
   Household,
   HouseholdMember,
   Notification,
+  PayFrequency,
   RecurringPayment,
 } from "../types";
 import { useAuth } from "./AuthContext";
@@ -123,6 +124,9 @@ type HouseholdContextValue = {
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   addExpenseComment: (expenseId: string, body: string) => Promise<void>;
+  savePaySettings: (input: { frequency: PayFrequency; anchorDate?: string | null }) => Promise<void>;
+  markIncomeCheckedIn: () => Promise<void>;
+  insertReminderNotification: (input: { type: string; title: string; body: string; metadata?: Record<string, unknown> }) => Promise<void>;
 };
 
 const HouseholdContext = createContext<HouseholdContextValue | undefined>(undefined);
@@ -149,6 +153,9 @@ function normalizeMember(row: any): HouseholdMember {
     role: row.role,
     joined_at: row.joined_at,
     budget_setup_completed_at: row.budget_setup_completed_at ?? null,
+    pay_frequency: (row.pay_frequency as PayFrequency | null | undefined) ?? null,
+    pay_anchor_date: row.pay_anchor_date ?? null,
+    last_income_checkin_at: row.last_income_checkin_at ?? null,
     profile: row.profiles ?? row.profile ?? null,
   };
 }
@@ -607,7 +614,29 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     ].filter((item): item is string => Boolean(item));
 
     const nextBudgetMonth = budgetMonthResult.data ? ({ ...budgetMonthResult.data } as BudgetMonth) : null;
-    setMembers((membersResult.data ?? []).map(normalizeMember));
+    const normalizedMembers = (membersResult.data ?? []).map(normalizeMember).map((member) => {
+      if (member.user_id !== activeUser.id) return member;
+      if (member.pay_frequency) return member;
+      try {
+        const raw = window.localStorage.getItem(`moneymates_pay_settings_${target.id}_${activeUser.id}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { frequency?: PayFrequency; anchorDate?: string | null };
+          if (parsed.frequency) {
+            return {
+              ...member,
+              pay_frequency: parsed.frequency,
+              pay_anchor_date: parsed.anchorDate ?? member.pay_anchor_date ?? null,
+              last_income_checkin_at:
+                member.last_income_checkin_at ?? window.localStorage.getItem(`moneymates_income_checkin_${target.id}_${activeUser.id}`),
+            };
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return member;
+    });
+    setMembers(normalizedMembers);
     setCategories((categoriesResult.data ?? []) as Category[]);
     setBudgetMonth(nextBudgetMonth);
     setBudgetItems(budgetItemsResult.data);
@@ -747,6 +776,26 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
+    };
+  }, [household?.id, user?.id]);
+
+  useEffect(() => {
+    if (!household || !user) return;
+    let lastRefreshAt = Date.now();
+    const REFRESH_COOLDOWN_MS = 25_000;
+    const maybeRefresh = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastRefreshAt < REFRESH_COOLDOWN_MS) return;
+      lastRefreshAt = Date.now();
+      void refresh();
+    };
+    document.addEventListener("visibilitychange", maybeRefresh);
+    window.addEventListener("focus", maybeRefresh);
+    window.addEventListener("online", maybeRefresh);
+    return () => {
+      document.removeEventListener("visibilitychange", maybeRefresh);
+      window.removeEventListener("focus", maybeRefresh);
+      window.removeEventListener("online", maybeRefresh);
     };
   }, [household?.id, user?.id]);
 
@@ -1351,8 +1400,121 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       },
       addExpenseComment: async (expenseId, body) => {
         if (!household || !user) throw new Error("Create a household first.");
-        const { error: commentError } = await supabase.from("expense_comments").insert({ household_id: household.id, expense_id: expenseId, user_id: user.id, body });
+        const trimmedBody = body.trim();
+        if (!trimmedBody) return;
+        const { error: commentError } = await supabase
+          .from("expense_comments")
+          .insert({ household_id: household.id, expense_id: expenseId, user_id: user.id, body: trimmedBody });
         if (commentError) throw commentError;
+
+        const expense = expenses.find((item) => item.id === expenseId);
+        const recipients = members.filter((member) => member.user_id !== user.id);
+        if (recipients.length) {
+          const merchant = expense?.merchant?.trim();
+          const categoryName = expense?.category?.name ?? "transaction";
+          const amount = expense ? `$${Number(expense.amount).toFixed(2)}` : "a transaction";
+          const subjectLabel = merchant || categoryName || "a transaction";
+          const snippet = trimmedBody.length > 120 ? `${trimmedBody.slice(0, 117)}...` : trimmedBody;
+          const rows = recipients.map((member) => ({
+            household_id: household.id,
+            user_id: member.user_id,
+            actor_user_id: user.id,
+            type: "expense_comment",
+            title: `${currentUserLabel()} commented on ${subjectLabel}`,
+            body: `${amount} - ${snippet}`,
+            metadata: { expense_id: expenseId, comment_body: trimmedBody.slice(0, 280) },
+          }));
+          const { error: notificationError } = await supabase.from("notifications").insert(rows);
+          if (notificationError && !isMissingRelation(notificationError)) {
+            setDataWarnings((current) => Array.from(new Set([
+              ...current,
+              "Comment posted but household notifications could not be sent. Check Supabase row level security on the notifications table.",
+            ])));
+          }
+        }
+
+        void sendHouseholdPhonePush({
+          householdId: household.id,
+          title: `${currentUserLabel()} commented on a transaction`,
+          body: trimmedBody.length > 140 ? `${trimmedBody.slice(0, 137)}...` : trimmedBody,
+          url: "/transactions",
+        });
+      },
+      savePaySettings: async ({ frequency, anchorDate }) => {
+        if (!household || !user) throw new Error("Create or join a household first.");
+        const updates: Record<string, unknown> = {
+          pay_frequency: frequency,
+          pay_anchor_date: anchorDate ?? null,
+        };
+        let { error: updateError } = await supabase
+          .from("household_members")
+          .update(updates)
+          .eq("household_id", household.id)
+          .eq("user_id", user.id);
+        if (updateError && isMissingColumn(updateError)) {
+          setDataWarnings((current) => Array.from(new Set([
+            ...current,
+            "Pay frequency couldn't sync because the pay_frequency column is missing. Run the latest household_members migration to enable cross-device sync.",
+          ])));
+          try {
+            window.localStorage.setItem(
+              `moneymates_pay_settings_${household.id}_${user.id}`,
+              JSON.stringify({ frequency, anchorDate: anchorDate ?? null }),
+            );
+          } catch {
+            // local storage unavailable; ignore.
+          }
+          setMembers((current) =>
+            current.map((member) =>
+              member.user_id === user.id ? { ...member, pay_frequency: frequency, pay_anchor_date: anchorDate ?? null } : member,
+            ),
+          );
+          return;
+        }
+        if (updateError) throw updateError;
+        setMembers((current) =>
+          current.map((member) =>
+            member.user_id === user.id ? { ...member, pay_frequency: frequency, pay_anchor_date: anchorDate ?? null } : member,
+          ),
+        );
+      },
+      markIncomeCheckedIn: async () => {
+        if (!household || !user) throw new Error("Create or join a household first.");
+        const now = new Date().toISOString();
+        let { error: updateError } = await supabase
+          .from("household_members")
+          .update({ last_income_checkin_at: now })
+          .eq("household_id", household.id)
+          .eq("user_id", user.id);
+        if (updateError && isMissingColumn(updateError)) {
+          try {
+            window.localStorage.setItem(`moneymates_income_checkin_${household.id}_${user.id}`, now);
+          } catch {
+            // ignore
+          }
+        } else if (updateError) {
+          throw updateError;
+        }
+        setMembers((current) =>
+          current.map((member) =>
+            member.user_id === user.id ? { ...member, last_income_checkin_at: now } : member,
+          ),
+        );
+      },
+      insertReminderNotification: async ({ type, title, body, metadata }) => {
+        if (!household || !user) throw new Error("Create or join a household first.");
+        const { error: notificationError } = await supabase.from("notifications").insert({
+          household_id: household.id,
+          user_id: user.id,
+          actor_user_id: user.id,
+          type,
+          title,
+          body,
+          metadata: metadata ?? {},
+        });
+        if (notificationError && !isMissingRelation(notificationError)) {
+          throw notificationError;
+        }
       },
     }),
     [

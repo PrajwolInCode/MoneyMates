@@ -13,16 +13,21 @@ import { useAuth } from "../contexts/AuthContext";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { formatMonthLabel } from "../lib/date";
 import { exportSummaryPdf, exportTransactionsCsv, exportTransactionsExcel } from "../lib/export";
+import { PAY_FREQUENCY_OPTIONS } from "../lib/income";
 import { disablePhonePush, enablePhonePush, getPhonePushSupportMessage, hasPhonePushSubscription } from "../lib/pushNotifications";
 import { hasSupabaseEnv, supabaseUrlDomain } from "../lib/supabase";
 import { supabase } from "../lib/supabase";
+import type { PayFrequency } from "../types";
 
 export function SettingsPage() {
   const { user, profile, updateProfile, signOut } = useAuth();
-  const { household, isOwner, expenses, categories, budgetItems, notifications, monthStart, budgetMonth, budgetLimits, members, aiInsight } = useHousehold();
+  const { household, isOwner, expenses, categories, budgetItems, notifications, monthStart, budgetMonth, budgetLimits, members, aiInsight, savePaySettings } = useHousehold();
+  const currentMember = members.find((row) => row.user_id === user?.id) ?? null;
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "");
   const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [payFrequency, setPayFrequency] = useState<PayFrequency | "">(currentMember?.pay_frequency ?? "");
+  const [savingPay, setSavingPay] = useState(false);
   const [phonePushEnabled, setPhonePushEnabled] = useState(false);
   const [phonePushBusy, setPhonePushBusy] = useState(false);
   const [phonePushMessage, setPhonePushMessage] = useState<string | null>(getPhonePushSupportMessage());
@@ -40,6 +45,27 @@ export function SettingsPage() {
   useEffect(() => {
     setDisplayName(profile?.display_name ?? "");
   }, [profile?.display_name]);
+
+  useEffect(() => {
+    setPayFrequency(currentMember?.pay_frequency ?? "");
+  }, [currentMember?.pay_frequency]);
+
+  const handleSavePayFrequency = async () => {
+    if (!payFrequency) {
+      setError("Pick how often you get paid.");
+      return;
+    }
+    setSavingPay(true);
+    setError(null);
+    try {
+      await savePaySettings({ frequency: payFrequency });
+      setToast("Pay schedule saved.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save pay schedule.");
+    } finally {
+      setSavingPay(false);
+    }
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -282,6 +308,35 @@ export function SettingsPage() {
               ? "You can manage household settings. All members can add expenses and budget items."
               : "You can add expenses, manage budget items, and view the shared household plan."}
           </p>
+        </Card>
+
+        <Card>
+          <h2 className="text-xl font-bold tracking-normal text-ink">Pay schedule</h2>
+          <p className="mt-2 text-sm leading-6 text-ink/65">
+            Tell MoneyMates how often you get paid so we remind you each cycle to confirm or update your income.
+          </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {PAY_FREQUENCY_OPTIONS.map((option) => {
+              const active = payFrequency === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setPayFrequency(option.value)}
+                  className={`rounded-xl border px-3 py-3 text-left transition ${
+                    active ? "border-navy bg-navy text-white shadow-soft" : "border-sage bg-white text-ink hover:border-moss"
+                  }`}
+                >
+                  <p className="text-sm font-semibold">{option.label}</p>
+                  <p className={`mt-0.5 text-xs ${active ? "text-white/75" : "text-ink/55"}`}>{option.helper}</p>
+                </button>
+              );
+            })}
+          </div>
+          <Button className="mt-4" onClick={() => void handleSavePayFrequency()} loading={savingPay} disabled={!payFrequency}>
+            <Save className="h-4 w-4" aria-hidden="true" />
+            Save pay schedule
+          </Button>
         </Card>
 
         <Card>
