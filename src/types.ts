@@ -17,12 +17,17 @@ export type Household = {
   updated_at?: string;
 };
 
+export type PayFrequency = "weekly" | "fortnightly" | "monthly";
+
 export type HouseholdMember = {
   household_id: string;
   user_id: string;
   role: MemberRole;
   joined_at: string;
   budget_setup_completed_at?: string | null;
+  pay_frequency?: PayFrequency | null;
+  pay_anchor_date?: string | null;
+  last_income_checkin_at?: string | null;
   profile?: Profile | null;
 };
 

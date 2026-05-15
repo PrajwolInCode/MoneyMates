@@ -9,6 +9,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01", "ss03";
 }
 
 * {
@@ -20,8 +21,10 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(220, 235, 226, 0.9), transparent 34rem),
+    radial-gradient(1100px 600px at 12% -10%, rgba(220, 235, 226, 0.65), transparent 60%),
+    radial-gradient(900px 500px at 110% 0%, rgba(233, 247, 239, 0.55), transparent 55%),
     linear-gradient(180deg, #f4f8f5 0%, #edf4ef 100%);
+  background-attachment: fixed;
 }
 
 button,
@@ -45,4 +48,10 @@ button {
 
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+.glass-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.82));
+  border: 1px solid rgba(220, 235, 226, 0.7);
+  backdrop-filter: blur(8px);
 }
