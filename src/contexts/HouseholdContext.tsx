@@ -942,23 +942,53 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
           note: input.note || null,
         };
         const rowWithCard = { ...baseRow, card_id: input.card_id || null };
-        let { error: expenseError } = await supabase.from("expenses").insert(rowWithCard);
-        if (expenseError && isMissingColumn(expenseError)) {
+        let inserted = await supabase.from("expenses").insert(rowWithCard).select("id").single();
+        if (inserted.error && isMissingColumn(inserted.error)) {
           setDataWarnings((current) => Array.from(new Set([
             ...current,
             "Card selection isn't saved yet because the card_id column is missing. Run the latest expenses migration to enable it.",
           ])));
-          const retry = await supabase.from("expenses").insert(baseRow);
-          expenseError = retry.error;
+          inserted = await supabase.from("expenses").insert(baseRow).select("id").single();
         }
-        if (expenseError) throw expenseError;
+        if (inserted.error) throw inserted.error;
+
+        const expenseId = inserted.data?.id as string | undefined;
         const categoryName = categories.find((category) => category.id === input.category_id)?.name ?? "Expense";
         const noteText = input.note?.trim() ? ` - Note: ${input.note.trim().slice(0, 140)}` : "";
+        const merchantLabel = input.merchant?.trim();
+        const amountFormatted = Number(input.amount).toFixed(2);
+
+        const recipients = expenseId ? members.filter((member) => member.user_id !== user.id) : [];
+        if (recipients.length) {
+          const titleSuffix = merchantLabel ? ` at ${merchantLabel}` : "";
+          const bodyNote = input.note?.trim() ? ` · ${input.note.trim().slice(0, 100)}` : "";
+          const rows = recipients.map((member) => ({
+            household_id: household.id,
+            user_id: member.user_id,
+            actor_user_id: user.id,
+            type: "expense_added",
+            title: `${currentUserLabel()} added ${categoryName}${titleSuffix}`,
+            body: `$${amountFormatted}${bodyNote}`,
+            metadata: {
+              expense_id: expenseId,
+              category_id: input.category_id,
+              amount: Number(input.amount),
+            },
+          }));
+          const { error: notificationError } = await supabase.from("notifications").insert(rows);
+          if (notificationError && !isMissingRelation(notificationError)) {
+            setDataWarnings((current) => Array.from(new Set([
+              ...current,
+              "Expense was saved but household notifications could not be sent. Check Supabase row level security on the notifications table.",
+            ])));
+          }
+        }
+
         void sendHouseholdPhonePush({
           householdId: household.id,
           title: `${currentUserLabel()} added a new expense`,
-          body: `${categoryName} - $${Number(input.amount).toFixed(2)}${noteText}`,
-          url: "/",
+          body: `${categoryName} - $${amountFormatted}${noteText}`,
+          url: "/transactions",
         });
         await refresh();
       },
