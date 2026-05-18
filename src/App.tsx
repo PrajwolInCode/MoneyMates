@@ -25,7 +25,7 @@ function AuthRequired({ children }: { children: React.ReactNode }) {
 function HouseholdRequired({ children }: { children: React.ReactNode }) {
   const { household, loading, error, loadIssue, refresh } = useHousehold();
 
-  if (loading) return <LoadingState label="Opening your household budget" />;
+  if (loading && !household) return <LoadingState label="Opening your household budget" />;
   if (error) {
     const title =
       loadIssue === "missing_env"
