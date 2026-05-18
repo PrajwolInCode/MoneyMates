@@ -11,7 +11,7 @@ import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { toISODate } from "../lib/date";
-import { currency } from "../lib/format";
+import { expensePraise } from "../lib/praise";
 
 type FormErrors = {
   amount?: string;
@@ -111,7 +111,7 @@ export function AddExpensePage() {
       setNote("");
       setOtherLabel("");
       setCardId(null);
-      setToast(`Added expense: ${resolvedCategoryName} - ${currency(savedAmount)}.`);
+      setToast(expensePraise(resolvedCategoryName, savedAmount));
     } catch (caught) {
       setSaveError(caught instanceof Error ? caught.message : "Could not save expense.");
     } finally {
