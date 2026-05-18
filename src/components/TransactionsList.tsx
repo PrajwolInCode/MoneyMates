@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Edit3, MessageSquare, ReceiptText, Save, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { CalendarDays, Edit3, MessageSquare, ReceiptText, Save, Send, Tag, Trash2, User2, X } from "lucide-react";
 import type { Expense } from "../types";
 import { formatShortDate, toISODate } from "../lib/date";
 import { currency, personName } from "../lib/format";
@@ -68,6 +69,20 @@ export function TransactionsList({ expenses, limit, emptyTitle = "No expenses ye
       setEditForm(null);
       setEditError(null);
     }
+  }, [selectedExpense]);
+
+  useEffect(() => {
+    if (!selectedExpense) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedId(null);
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKey);
+    };
   }, [selectedExpense]);
 
   if (!rows.length) {
@@ -183,150 +198,248 @@ export function TransactionsList({ expenses, limit, emptyTitle = "No expenses ye
           </button>
         );
       })}
-      {selectedExpense ? (
-        <div className="fixed inset-0 z-50 bg-ink/30" onClick={() => setSelectedId(null)}>
-          <aside className="fixed inset-x-0 bottom-0 max-h-[86vh] overflow-auto rounded-t-3xl bg-white p-4 shadow-soft md:inset-y-0 md:left-auto md:right-0 md:w-[28rem] md:rounded-l-3xl md:rounded-tr-none" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-moss">Transaction detail</p>
-                <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">{currency(Number(selectedExpense.amount))}</h2>
+      {selectedExpense ? createPortal(
+        <div
+          className="mm-dialog-overlay fixed inset-0 z-50 flex items-center justify-center bg-ink/45 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="transaction-dialog-title"
+          onClick={() => setSelectedId(null)}
+        >
+          <div
+            className="mm-dialog-panel relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-soft"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              className="h-1.5 w-full flex-shrink-0"
+              style={{ backgroundColor: selectedExpense.category?.color ?? "#0f3d3e" }}
+              aria-hidden="true"
+            />
+            <header className="flex items-start justify-between gap-3 px-5 pt-5 sm:px-6">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-moss">
+                  {editingId === selectedExpense.id ? "Edit transaction" : "Transaction"}
+                </p>
+                <h2
+                  id="transaction-dialog-title"
+                  className="mt-1 truncate text-2xl font-bold tracking-tightish text-ink"
+                >
+                  {displayTitle(selectedExpense)}
+                </h2>
+                <p className="mt-1 text-3xl font-bold tracking-tight text-ink">{currency(Number(selectedExpense.amount))}</p>
               </div>
-              <button className="rounded-xl border border-sage p-2 text-ink/70" aria-label="Close transaction detail" onClick={() => setSelectedId(null)}>
+              <button
+                className="flex-shrink-0 rounded-xl border border-sage p-2 text-ink/60 transition hover:bg-mist hover:text-ink"
+                aria-label="Close transaction detail"
+                onClick={() => setSelectedId(null)}
+              >
                 <X className="h-5 w-5" />
               </button>
-            </div>
-            {editingId === selectedExpense.id && editForm ? (
-              <form className="mt-4 space-y-3" onSubmit={submitEdit}>
-                <FormField label="Amount">
-                  <input
-                    className={inputClass}
-                    inputMode="decimal"
-                    value={editForm.amount}
-                    onChange={(event) => setEditForm((current) => current ? { ...current, amount: event.target.value } : current)}
-                  />
-                </FormField>
-                <FormField label="Category">
-                  <select
-                    className={inputClass}
-                    value={editForm.categoryId}
-                    onChange={(event) => setEditForm((current) => current ? { ...current, categoryId: event.target.value } : current)}
-                  >
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField label="Date">
-                  <input
-                    className={inputClass}
-                    type="date"
-                    value={editForm.spentOn}
-                    onChange={(event) => setEditForm((current) => current ? { ...current, spentOn: event.target.value } : current)}
-                  />
-                </FormField>
-                <FormField label="Merchant or place">
-                  <input
-                    className={inputClass}
-                    value={editForm.merchant}
-                    onChange={(event) => setEditForm((current) => current ? { ...current, merchant: event.target.value } : current)}
-                    placeholder="Woolworths"
-                  />
-                </FormField>
-                <CardPicker
-                  value={editForm.cardId}
-                  onChange={(nextCardId) => setEditForm((current) => current ? { ...current, cardId: nextCardId } : current)}
-                  helperText="Update the card if you paid with a different one."
-                />
-                <FormField label="Note">
-                  <textarea
-                    className={`${inputClass} min-h-20 resize-none`}
-                    value={editForm.note}
-                    onChange={(event) => setEditForm((current) => current ? { ...current, note: event.target.value } : current)}
-                  />
-                </FormField>
-                {editError ? <WarningBanner tone="strong">{editError}</WarningBanner> : null}
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={savingEdit}
-                    className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-navy px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink disabled:opacity-50"
-                  >
-                    <Save className="h-4 w-4" aria-hidden="true" />
-                    {savingEdit ? "Saving..." : "Save changes"}
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sage px-3 py-2 text-sm font-semibold text-ink"
-                    onClick={cancelEdit}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <div className="mt-4 grid gap-3 text-sm text-ink/70">
-                  <p><span className="font-semibold text-ink">Merchant:</span> {selectedExpense.merchant || "Not added"}</p>
-                  <p><span className="font-semibold text-ink">Category:</span> {selectedExpense.category?.name ?? "Category"}</p>
-                  <p className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">Paid with:</span>
-                    {(() => {
-                      const card = getCard(selectedExpense.card_id);
-                      return card ? <CardChip card={card} size="sm" showName /> : <span>Not recorded</span>;
-                    })()}
-                  </p>
-                  <p><span className="font-semibold text-ink">Member:</span> {personName(selectedExpense.profile?.display_name, selectedExpense.profile?.email ?? "Household member")}</p>
-                  <p><span className="font-semibold text-ink">Date:</span> {formatShortDate(selectedExpense.spent_on)}</p>
-                  <p className="rounded-xl bg-mist p-3"><span className="font-semibold text-ink">Note:</span> {selectedExpense.note || "No note added."}</p>
-                </div>
-                {selectedExpense.user_id === user?.id ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-navy px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink"
-                      onClick={() => beginEdit(selectedExpense)}
+            </header>
+
+            <div className="flex-1 overflow-y-auto px-5 pb-5 pt-4 sm:px-6">
+              {editingId === selectedExpense.id && editForm ? (
+                <form className="space-y-3" onSubmit={submitEdit}>
+                  <FormField label="Amount">
+                    <input
+                      className={inputClass}
+                      inputMode="decimal"
+                      value={editForm.amount}
+                      onChange={(event) => setEditForm((current) => current ? { ...current, amount: event.target.value } : current)}
+                    />
+                  </FormField>
+                  <FormField label="Category">
+                    <select
+                      className={inputClass}
+                      value={editForm.categoryId}
+                      onChange={(event) => setEditForm((current) => current ? { ...current, categoryId: event.target.value } : current)}
                     >
-                      <Edit3 className="h-4 w-4" aria-hidden="true" />
-                      Edit transaction
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>{category.name}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Date">
+                    <input
+                      className={inputClass}
+                      type="date"
+                      value={editForm.spentOn}
+                      onChange={(event) => setEditForm((current) => current ? { ...current, spentOn: event.target.value } : current)}
+                    />
+                  </FormField>
+                  <FormField label="Merchant or place">
+                    <input
+                      className={inputClass}
+                      value={editForm.merchant}
+                      onChange={(event) => setEditForm((current) => current ? { ...current, merchant: event.target.value } : current)}
+                      placeholder="Woolworths"
+                    />
+                  </FormField>
+                  <CardPicker
+                    value={editForm.cardId}
+                    onChange={(nextCardId) => setEditForm((current) => current ? { ...current, cardId: nextCardId } : current)}
+                    helperText="Update the card if you paid with a different one."
+                  />
+                  <FormField label="Note">
+                    <textarea
+                      className={`${inputClass} min-h-20 resize-none`}
+                      value={editForm.note}
+                      onChange={(event) => setEditForm((current) => current ? { ...current, note: event.target.value } : current)}
+                    />
+                  </FormField>
+                  {editError ? <WarningBanner tone="strong">{editError}</WarningBanner> : null}
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={savingEdit}
+                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-navy px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink disabled:opacity-50"
+                    >
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                      {savingEdit ? "Saving..." : "Save changes"}
                     </button>
                     <button
-                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-coral/30 px-3 py-2 text-sm font-semibold text-coral hover:bg-coral/10 disabled:opacity-50"
                       type="button"
-                      disabled={deletingId === selectedExpense.id}
-                      onClick={() => void handleDelete(selectedExpense)}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-sage px-3 py-2 text-sm font-semibold text-ink hover:bg-mist"
+                      onClick={cancelEdit}
                     >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Delete
+                      Cancel
                     </button>
                   </div>
-                ) : (
-                  <p className="mt-4 rounded-xl bg-mist px-3 py-2 text-xs text-ink/55">
-                    Only the member who added this transaction can edit or delete it.
-                  </p>
-                )}
-              </>
-            )}
-            <div className="mt-4 rounded-2xl bg-sage/45 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-ink">Comments</p>
-                {(commentsByExpense[selectedExpense.id] ?? []).length > 1 ? (
-                  <button className="text-xs font-semibold text-moss" onClick={() => setCommentsOpen((value) => !value)}>
-                    {commentsOpen ? "Hide comments" : "View comments"}
-                  </button>
-                ) : null}
-              </div>
-              {(commentsOpen ? commentsByExpense[selectedExpense.id] ?? [] : (commentsByExpense[selectedExpense.id] ?? []).slice(-1)).map((comment) => (
-                <p key={comment.id} className="mt-2 text-sm text-ink/75">
-                  <span className="font-semibold">{personName(comment.profile?.display_name, comment.profile?.email ?? "Household member")}:</span> {comment.body}
-                </p>
-              ))}
-              <form className="mt-3 flex gap-2" onSubmit={(event) => void submitComment(event, selectedExpense.id)}>
-                <input className="w-full rounded-lg border border-sage bg-white px-3 py-2 text-sm" placeholder="Add comment" value={drafts[selectedExpense.id] ?? ""} onChange={(event) => setDrafts((value) => ({ ...value, [selectedExpense.id]: event.target.value }))} />
-                <button className="rounded-lg bg-navy px-3 py-2 text-sm font-semibold text-white">Post</button>
-              </form>
+                </form>
+              ) : (
+                <>
+                  <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="flex items-start gap-2.5 rounded-xl bg-mist px-3 py-2.5">
+                      <Tag className="mt-0.5 h-4 w-4 flex-shrink-0 text-moss" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink/50">Category</dt>
+                        <dd className="truncate text-sm font-semibold text-ink">{selectedExpense.category?.name ?? "Category"}</dd>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 rounded-xl bg-mist px-3 py-2.5">
+                      <CalendarDays className="mt-0.5 h-4 w-4 flex-shrink-0 text-moss" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink/50">Date</dt>
+                        <dd className="text-sm font-semibold text-ink">{formatShortDate(selectedExpense.spent_on)}</dd>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 rounded-xl bg-mist px-3 py-2.5">
+                      <User2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-moss" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink/50">Added by</dt>
+                        <dd className="truncate text-sm font-semibold text-ink">
+                          {personName(selectedExpense.profile?.display_name, selectedExpense.profile?.email ?? "Household member")}
+                        </dd>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 rounded-xl bg-mist px-3 py-2.5">
+                      <div className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center text-moss">
+                        <span className="block h-2 w-2 rounded-full bg-moss" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink/50">Paid with</dt>
+                        <dd className="mt-0.5 text-sm font-semibold text-ink">
+                          {(() => {
+                            const card = getCard(selectedExpense.card_id);
+                            return card ? <CardChip card={card} size="sm" showName /> : <span className="text-ink/55">Not recorded</span>;
+                          })()}
+                        </dd>
+                      </div>
+                    </div>
+                  </dl>
+                  {selectedExpense.merchant?.trim() ? (
+                    <p className="mt-3 text-xs text-ink/55">
+                      <span className="font-semibold text-ink/70">Merchant:</span> {selectedExpense.merchant}
+                    </p>
+                  ) : null}
+                  {selectedExpense.note?.trim() ? (
+                    <div className="mt-3 rounded-xl border border-sage/70 bg-sage/30 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-moss">Note</p>
+                      <p className="mt-1 whitespace-pre-line text-sm text-ink/75">{selectedExpense.note}</p>
+                    </div>
+                  ) : null}
+                  {selectedExpense.user_id === user?.id ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-navy px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-ink sm:flex-initial"
+                        onClick={() => beginEdit(selectedExpense)}
+                      >
+                        <Edit3 className="h-4 w-4" aria-hidden="true" />
+                        Edit
+                      </button>
+                      <button
+                        className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-coral/30 px-3 py-2 text-sm font-semibold text-coral hover:bg-coral/10 disabled:opacity-50 sm:flex-initial"
+                        type="button"
+                        disabled={deletingId === selectedExpense.id}
+                        onClick={() => void handleDelete(selectedExpense)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        {deletingId === selectedExpense.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-4 rounded-xl bg-mist px-3 py-2 text-xs text-ink/55">
+                      Only the member who added this transaction can edit or delete it.
+                    </p>
+                  )}
+                  <div className="mt-5 rounded-2xl border border-sage/60 bg-sage/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-ink">
+                        Comments
+                        {(commentsByExpense[selectedExpense.id] ?? []).length > 0 ? (
+                          <span className="ml-1.5 text-xs font-medium text-ink/55">
+                            ({(commentsByExpense[selectedExpense.id] ?? []).length})
+                          </span>
+                        ) : null}
+                      </p>
+                      {(commentsByExpense[selectedExpense.id] ?? []).length > 1 ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-moss hover:underline"
+                          onClick={() => setCommentsOpen((value) => !value)}
+                        >
+                          {commentsOpen ? "Show latest" : "View all"}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 space-y-1.5">
+                      {(commentsByExpense[selectedExpense.id] ?? []).length === 0 ? (
+                        <p className="text-xs text-ink/55">No comments yet — start the thread.</p>
+                      ) : (
+                        (commentsOpen ? commentsByExpense[selectedExpense.id] ?? [] : (commentsByExpense[selectedExpense.id] ?? []).slice(-1)).map((comment) => (
+                          <div key={comment.id} className="rounded-xl bg-white px-3 py-2 text-sm">
+                            <p className="text-[11px] font-semibold text-moss">
+                              {personName(comment.profile?.display_name, comment.profile?.email ?? "Household member")}
+                            </p>
+                            <p className="mt-0.5 text-sm text-ink/75">{comment.body}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <form className="mt-3 flex gap-2" onSubmit={(event) => void submitComment(event, selectedExpense.id)}>
+                      <input
+                        className="min-w-0 flex-1 rounded-lg border border-sage bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-moss/40"
+                        placeholder="Add a comment"
+                        value={drafts[selectedExpense.id] ?? ""}
+                        onChange={(event) => setDrafts((value) => ({ ...value, [selectedExpense.id]: event.target.value }))}
+                      />
+                      <button
+                        type="submit"
+                        disabled={!drafts[selectedExpense.id]?.trim()}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-navy px-3 py-2 text-sm font-semibold text-white hover:bg-ink disabled:opacity-40"
+                      >
+                        <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                        Post
+                      </button>
+                    </form>
+                  </div>
+                </>
+              )}
             </div>
-          </aside>
-        </div>
+          </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
