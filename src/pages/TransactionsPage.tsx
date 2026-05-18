@@ -41,7 +41,7 @@ export function TransactionsPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2600);
+    const t = window.setTimeout(() => setToast(null), 4200);
     return () => window.clearTimeout(t);
   }, [toast]);
 
@@ -155,7 +155,7 @@ export function TransactionsPage() {
 
   return (
     <div className="pb-24 md:pb-0">
-      {toast ? <Toast message={toast} /> : null}
+      {toast ? <Toast message={toast} tone="praise" /> : null}
 
       <PageHeader
         eyebrow="This month"

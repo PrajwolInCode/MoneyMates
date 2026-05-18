@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Info, Save } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { CardPicker } from "../components/CardPicker";
 import { FormField } from "../components/FormField";
@@ -11,6 +10,7 @@ import { Toast } from "../components/Toast";
 import { WarningBanner } from "../components/WarningBanner";
 import { useHousehold } from "../contexts/HouseholdContext";
 import { toISODate } from "../lib/date";
+import { currency } from "../lib/format";
 import { expensePraise } from "../lib/praise";
 
 type FormErrors = {
@@ -53,7 +53,7 @@ export function AddExpensePage() {
 
   useEffect(() => {
     if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 2600);
+    const timeout = window.setTimeout(() => setToast(null), 4200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
@@ -119,41 +119,21 @@ export function AddExpensePage() {
     }
   };
 
+  const parsedAmount = Number(amount);
+  const previewReady = Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const previewLabel = isOther && otherLabel.trim() ? otherLabel.trim() : selectedCategory?.name ?? "";
+
   return (
-    <div>
-      {toast ? <Toast message={toast} /> : null}
+    <div className="pb-36 md:pb-0">
+      {toast ? <Toast message={toast} tone="praise" /> : null}
       <PageHeader
         eyebrow="Quick log"
         title="Add an expense"
-        description="Use this page to record money you spent today. To add income, bills, or savings goals use the shortcuts below."
+        description="Record money you spent today. Fill the form and tap Save expense — the green button at the bottom."
       />
 
       <Card className="mx-auto max-w-2xl">
-        <div className="mb-5">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-moss">
-            <Info className="h-3.5 w-3.5" aria-hidden="true" />
-            Looking for income or recurring items?
-          </div>
-          <p className="mb-3 text-sm text-ink/60">
-            This form is for one-off purchases. Money in (salary), bills, and savings goals live in the Budget page so they
-            keep updating each month automatically.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {QUICK_BUDGET_LINKS.map((item) => (
-              <Link
-                key={item.href}
-                className={`rounded-xl p-3 text-sm font-semibold hover:bg-sage ${
-                  item.tone === "income" ? "bg-mint text-moss" : "bg-sage/60 text-ink"
-                }`}
-                to={item.href}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form id="add-expense-form" className="space-y-4" onSubmit={handleSubmit}>
           <FormField label="How much was it?" error={errors.amount} hint="Use dollars and cents, for example 42.50">
             <input
               className={inputClass}
@@ -183,6 +163,15 @@ export function AddExpensePage() {
             )}
           </FormField>
 
+          {previewReady && previewLabel ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-moss/20 bg-mint px-4 py-3 text-sm">
+              <span className="font-semibold text-moss">Ready to save</span>
+              <span className="truncate font-bold text-ink">
+                {previewLabel} · {currency(parsedAmount)}
+              </span>
+            </div>
+          ) : null}
+
           <FormField label="When did it happen?" error={errors.date}>
             <input className={inputClass} type="date" value={spentOn} onChange={(event) => setSpentOn(event.target.value)} />
           </FormField>
@@ -208,12 +197,53 @@ export function AddExpensePage() {
 
           {saveError ? <WarningBanner tone="strong">{saveError}</WarningBanner> : null}
 
-          <Button type="submit" className="w-full" loading={saving}>
-            <Save className="h-4 w-4" aria-hidden="true" />
-            Save expense
-          </Button>
+          <div className="hidden sm:block">
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-moss px-4 py-3 text-base font-bold text-white shadow-elevated transition hover:bg-navy disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save className="h-5 w-5" aria-hidden="true" />
+              {saving ? "Saving expense..." : "Save expense"}
+            </button>
+          </div>
         </form>
+
+        <div className="mt-6 border-t border-sage/60 pt-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/45">
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+            Not a one-off expense? Set up recurring items here:
+          </div>
+          <p className="mb-3 text-xs text-ink/55">
+            Money in (salary), bills, and savings goals live in Budget so they keep updating each month automatically.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {QUICK_BUDGET_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                className={`rounded-xl border border-sage/50 px-3 py-2 text-xs font-medium hover:bg-sage/30 ${
+                  item.tone === "income" ? "bg-mint/40 text-moss" : "bg-white text-ink/70"
+                }`}
+                to={item.href}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
       </Card>
+
+      <div className="safe-bottom fixed inset-x-0 bottom-16 z-30 border-t border-sage/60 bg-white/95 px-4 py-3 backdrop-blur-md shadow-soft sm:hidden">
+        <button
+          type="submit"
+          form="add-expense-form"
+          disabled={saving}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-moss px-4 py-3 text-base font-bold text-white shadow-elevated transition active:scale-[0.98] disabled:opacity-60"
+        >
+          <Save className="h-5 w-5" aria-hidden="true" />
+          {saving ? "Saving expense..." : previewReady && previewLabel ? `Save ${currency(parsedAmount)}` : "Save expense"}
+        </button>
+      </div>
     </div>
   );
 }
