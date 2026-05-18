@@ -16,6 +16,7 @@ import { useHousehold } from "../contexts/HouseholdContext";
 import { getCard, PAYMENT_CARDS } from "../lib/cards";
 import { toISODate } from "../lib/date";
 import { currency, personName } from "../lib/format";
+import { expensePraise } from "../lib/praise";
 
 export function TransactionsPage() {
   const { categories, expenses, members, addExpense } = useHousehold();
@@ -132,7 +133,7 @@ export function TransactionsPage() {
       setOtherLabel("");
       setCardId(null);
       setShowForm(false);
-      setToast(`Added: ${categoryName} – ${currency(parsedAmount)}`);
+      setToast(expensePraise(categoryName, parsedAmount));
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Could not save expense.");
     } finally {
