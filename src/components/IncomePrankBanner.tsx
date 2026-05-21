@@ -140,22 +140,20 @@ export function IncomePrankBanner({ hasIncome, ready }: Props) {
 
   useEffect(() => {
     if (!ready) return;
-    if (decidedRef.current) {
-      // After the first decision, only react to hasIncome flipping on while a
-      // prank step is open — that means data finished loading and the user
-      // actually does have income, so close the prank and let the salute show.
-      if (hasIncome && (step === "step0" || step === "step1" || step === "step2" || step === "stubborn")) {
-        setStep(alreadyCelebrated() ? "hidden" : "celebrate");
+    if (decidedRef.current) return;
+    // Debounce the first decision so transient flickers in hasIncome during the
+    // initial data load don't briefly show the wrong card.
+    const timeout = window.setTimeout(() => {
+      if (decidedRef.current) return;
+      decidedRef.current = true;
+      if (hasIncome) {
+        if (!alreadyCelebrated()) setStep("celebrate");
+      } else if (!isDismissedNow()) {
+        setStep("step0");
       }
-      return;
-    }
-    decidedRef.current = true;
-    if (hasIncome) {
-      setStep(alreadyCelebrated() ? "hidden" : "celebrate");
-    } else if (!isDismissedNow()) {
-      setStep("step0");
-    }
-  }, [ready, hasIncome, step]);
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [ready, hasIncome]);
 
   const dismissCelebrate = () => {
     markCelebrated();
