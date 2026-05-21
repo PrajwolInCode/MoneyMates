@@ -20,6 +20,7 @@ import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { FinancialFreedomCard } from "../components/FinancialFreedomCard";
+import { IncomePrankBanner } from "../components/IncomePrankBanner";
 import { IncomeReminderBanner } from "../components/IncomeReminderBanner";
 import { MonthSelector } from "../components/MonthSelector";
 import { PageHeader } from "../components/PageHeader";
@@ -192,6 +193,7 @@ export function DashboardPage() {
 
   return (
     <div>
+      <IncomePrankBanner hasIncome={combinedMonthlyIncome > 0} />
       <PageHeader
         eyebrow={monthLabel}
         title="Dashboard"
