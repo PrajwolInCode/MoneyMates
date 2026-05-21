@@ -66,6 +66,7 @@ export function DashboardPage() {
     notifications,
     monthStart,
     isOwner,
+    loading,
     saveAiInsight,
     clearLegacyMonthlyBudget,
   } = useHousehold();
@@ -193,7 +194,7 @@ export function DashboardPage() {
 
   return (
     <div>
-      <IncomePrankBanner hasIncome={combinedMonthlyIncome > 0} />
+      <IncomePrankBanner hasIncome={combinedMonthlyIncome > 0} ready={!loading && Boolean(household)} />
       <PageHeader
         eyebrow={monthLabel}
         title="Dashboard"
