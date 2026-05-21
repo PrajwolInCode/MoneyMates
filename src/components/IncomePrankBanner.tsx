@@ -154,8 +154,6 @@ export function IncomePrankBanner({ hasIncome }: Props) {
   useEffect(() => {
     if (step !== "celebrate") return;
     markCelebrated();
-    const timeout = window.setTimeout(() => setStep("hidden"), 5200);
-    return () => window.clearTimeout(timeout);
   }, [step]);
 
   useEffect(() => {
