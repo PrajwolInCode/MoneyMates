@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Wallet, X } from "lucide-react";
@@ -128,28 +128,34 @@ function Confetti() {
 
 type Props = {
   hasIncome: boolean;
+  ready: boolean;
 };
 
-export function IncomePrankBanner({ hasIncome }: Props) {
+export function IncomePrankBanner({ hasIncome, ready }: Props) {
   const navigate = useNavigate();
-  const [step, setStep] = useState<"hidden" | "step0" | "step1" | "step2" | "stubborn" | "celebrate">(() => {
-    if (hasIncome) {
-      return alreadyCelebrated() ? "hidden" : "celebrate";
-    }
-    return isDismissedNow() ? "hidden" : "step0";
-  });
+  const [step, setStep] = useState<"hidden" | "step0" | "step1" | "step2" | "stubborn" | "celebrate">("hidden");
   const [stubbornLine, setStubbornLine] = useState(() => pickStubborn());
   const [shake, setShake] = useState(false);
+  const decidedRef = useRef(false);
 
   useEffect(() => {
-    if (hasIncome) {
-      if (alreadyCelebrated()) {
-        setStep("hidden");
-      } else {
-        setStep("celebrate");
+    if (!ready) return;
+    if (decidedRef.current) {
+      // After the first decision, only react to hasIncome flipping on while a
+      // prank step is open — that means data finished loading and the user
+      // actually does have income, so close the prank and let the salute show.
+      if (hasIncome && (step === "step0" || step === "step1" || step === "step2" || step === "stubborn")) {
+        setStep(alreadyCelebrated() ? "hidden" : "celebrate");
       }
+      return;
     }
-  }, [hasIncome]);
+    decidedRef.current = true;
+    if (hasIncome) {
+      setStep(alreadyCelebrated() ? "hidden" : "celebrate");
+    } else if (!isDismissedNow()) {
+      setStep("step0");
+    }
+  }, [ready, hasIncome, step]);
 
   const dismissCelebrate = () => {
     markCelebrated();
