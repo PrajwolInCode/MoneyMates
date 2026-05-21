@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Wallet, X } from "lucide-react";
 
 const DISMISS_STORAGE_KEY = "moneymates_income_prank_dismissed_until";
-const CELEBRATED_STORAGE_KEY = "moneymates_income_celebrated";
+const CELEBRATED_STORAGE_KEY = "moneymates_income_celebrated_v2";
 const SNOOZE_HOURS = 18;
 
 type Step = {
@@ -151,10 +151,10 @@ export function IncomePrankBanner({ hasIncome }: Props) {
     }
   }, [hasIncome]);
 
-  useEffect(() => {
-    if (step !== "celebrate") return;
+  const dismissCelebrate = () => {
     markCelebrated();
-  }, [step]);
+    setStep("hidden");
+  };
 
   useEffect(() => {
     if (step === "hidden") return;
@@ -172,7 +172,7 @@ export function IncomePrankBanner({ hasIncome }: Props) {
 
   const handleDismiss = () => {
     if (step === "celebrate") {
-      setStep("hidden");
+      dismissCelebrate();
       return;
     }
     setStubbornLine(pickStubborn());
@@ -218,7 +218,7 @@ export function IncomePrankBanner({ hasIncome }: Props) {
           role="dialog"
           aria-modal="true"
           aria-label="Income added"
-          onClick={() => setStep("hidden")}
+          onClick={dismissCelebrate}
         >
           <div
             className="mm-dialog-panel relative w-full max-w-sm rounded-3xl border border-moss/30 bg-white p-6 text-center shadow-soft"
@@ -227,7 +227,7 @@ export function IncomePrankBanner({ hasIncome }: Props) {
             <button
               className="absolute right-3 top-3 rounded-xl border border-sage p-1.5 text-ink/60 hover:bg-mist"
               aria-label="Close"
-              onClick={() => setStep("hidden")}
+              onClick={dismissCelebrate}
             >
               <X className="h-4 w-4" />
             </button>
@@ -244,7 +244,7 @@ export function IncomePrankBanner({ hasIncome }: Props) {
             </div>
             <button
               className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-moss px-4 py-2 text-sm font-bold text-white shadow-elevated hover:bg-navy"
-              onClick={() => setStep("hidden")}
+              onClick={dismissCelebrate}
             >
               Let's go, captain
             </button>
