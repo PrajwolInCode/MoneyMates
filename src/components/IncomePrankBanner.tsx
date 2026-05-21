@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Wallet, X } from "lucide-react";
 
-const DISMISS_STORAGE_KEY = "moneymates_income_prank_dismissed_until";
-const CELEBRATED_STORAGE_KEY = "moneymates_income_celebrated_v2";
+const DISMISS_STORAGE_PREFIX = "moneymates_income_prank_dismissed_until_";
+const CELEBRATED_STORAGE_PREFIX = "moneymates_income_celebrated_v3_";
 const SNOOZE_HOURS = 18;
 
 type Step = {
@@ -57,9 +57,9 @@ function pickStubborn() {
   return STUBBORN_LINES[Math.floor(Math.random() * STUBBORN_LINES.length)];
 }
 
-function isDismissedNow() {
+function isDismissedNow(userKey: string) {
   try {
-    const raw = window.localStorage.getItem(DISMISS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(DISMISS_STORAGE_PREFIX + userKey);
     if (!raw) return false;
     const until = Number(raw);
     if (!Number.isFinite(until)) return false;
@@ -69,25 +69,25 @@ function isDismissedNow() {
   }
 }
 
-function snoozeBanner(hours = SNOOZE_HOURS) {
+function snoozeBanner(userKey: string, hours = SNOOZE_HOURS) {
   try {
-    window.localStorage.setItem(DISMISS_STORAGE_KEY, String(Date.now() + hours * 60 * 60 * 1000));
+    window.localStorage.setItem(DISMISS_STORAGE_PREFIX + userKey, String(Date.now() + hours * 60 * 60 * 1000));
   } catch {
     // ignore
   }
 }
 
-function alreadyCelebrated() {
+function alreadyCelebrated(userKey: string) {
   try {
-    return window.localStorage.getItem(CELEBRATED_STORAGE_KEY) === "1";
+    return window.localStorage.getItem(CELEBRATED_STORAGE_PREFIX + userKey) === "1";
   } catch {
     return false;
   }
 }
 
-function markCelebrated() {
+function markCelebrated(userKey: string) {
   try {
-    window.localStorage.setItem(CELEBRATED_STORAGE_KEY, "1");
+    window.localStorage.setItem(CELEBRATED_STORAGE_PREFIX + userKey, "1");
   } catch {
     // ignore
   }
@@ -129,9 +129,10 @@ function Confetti() {
 type Props = {
   hasIncome: boolean;
   ready: boolean;
+  userKey: string;
 };
 
-export function IncomePrankBanner({ hasIncome, ready }: Props) {
+export function IncomePrankBanner({ hasIncome, ready, userKey }: Props) {
   const navigate = useNavigate();
   const [step, setStep] = useState<"hidden" | "step0" | "step1" | "step2" | "stubborn" | "celebrate">("hidden");
   const [stubbornLine, setStubbornLine] = useState(() => pickStubborn());
@@ -147,16 +148,16 @@ export function IncomePrankBanner({ hasIncome, ready }: Props) {
       if (decidedRef.current) return;
       decidedRef.current = true;
       if (hasIncome) {
-        if (!alreadyCelebrated()) setStep("celebrate");
-      } else if (!isDismissedNow()) {
+        if (!alreadyCelebrated(userKey)) setStep("celebrate");
+      } else if (!isDismissedNow(userKey)) {
         setStep("step0");
       }
     }, 700);
     return () => window.clearTimeout(timeout);
-  }, [ready, hasIncome]);
+  }, [ready, hasIncome, userKey]);
 
   const dismissCelebrate = () => {
-    markCelebrated();
+    markCelebrated(userKey);
     setStep("hidden");
   };
 
@@ -181,7 +182,7 @@ export function IncomePrankBanner({ hasIncome, ready }: Props) {
     }
     setStubbornLine(pickStubborn());
     setStep("stubborn");
-    snoozeBanner();
+    snoozeBanner(userKey);
   };
 
   const handleNo = () => {
@@ -191,13 +192,13 @@ export function IncomePrankBanner({ hasIncome, ready }: Props) {
       setShake(false);
       setStubbornLine(pickStubborn());
       setStep("stubborn");
-      snoozeBanner();
+      snoozeBanner(userKey);
     }, 320);
   };
 
   const handleOption = (next: Step["options"][number]["next"]) => {
     if (next === "income") {
-      snoozeBanner(2); // small snooze so the banner doesn't reappear if navigation is slow
+      snoozeBanner(userKey, 2); // small snooze so the banner doesn't reappear if navigation is slow
       setStep("hidden");
       navigate("/budget?add=income");
       return;
@@ -288,7 +289,7 @@ export function IncomePrankBanner({ hasIncome, ready }: Props) {
             <button
               className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl bg-moss px-3 py-2 text-sm font-semibold text-white shadow-elevated hover:bg-navy"
               onClick={() => {
-                snoozeBanner(2);
+                snoozeBanner(userKey, 2);
                 setStep("hidden");
                 navigate("/budget?add=income");
               }}

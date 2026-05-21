@@ -91,6 +91,15 @@ export function DashboardPage() {
   const itemMonthlyIncome = totalBudgetItemMonthlyIncome(activeBudgetItemsForTotals);
   const hasLegacyBudgetData = legacyMonthlyIncome > 0 || legacyMonthlyPlan > 0;
   const combinedMonthlyIncome = hasMemberBudgetItems ? itemMonthlyIncome : legacyMonthlyIncome;
+  const currentUserHasIncome = useMemo(
+    () =>
+      activeBudgetItems.some(
+        (item) =>
+          item.type === "income" &&
+          (item.owner_user_id === user?.id || item.created_by === user?.id),
+      ),
+    [activeBudgetItems, user?.id],
+  );
   const combinedPersonalExpenses = monthlyItemTotal(
     activeBudgetItemsForTotals,
     (item) => item.scope === "personal" && item.type !== "income" && item.type !== "debt" && item.type !== "saving" && item.type !== "buffer" && item.type !== "info",
@@ -194,7 +203,7 @@ export function DashboardPage() {
 
   return (
     <div>
-      <IncomePrankBanner hasIncome={combinedMonthlyIncome > 0} ready={!loading && Boolean(household)} />
+      <IncomePrankBanner hasIncome={currentUserHasIncome} ready={!loading && Boolean(household)} userKey={user?.id ?? "anon"} />
       <PageHeader
         eyebrow={monthLabel}
         title="Dashboard"
