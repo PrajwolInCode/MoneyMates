@@ -70,3 +70,16 @@ Categories live in the Supabase `categories` table, seeded from `src/lib/constan
 - Household members join via the `join_household_by_code` RPC (RLS-safe).
 - Budget items live in `planned_budget_items`. Several incremental migrations may need to be run in order (see README) when setting up an existing Supabase project.
 - Month tracking starts at `2026-05-01` (`BUDGET_START_MONTH`).
+
+### Supabase Data API change (action required before October 30, 2026)
+
+Supabase is changing how the Data API works: from October 30, 2026, any **new** table created in the `public` schema on existing projects will require an explicit `GRANT` before `supabase-js` can access it. Existing tables are unaffected.
+
+Whenever a new migration creates a new table, add this at the end:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.your_new_table TO authenticated;
+GRANT SELECT ON public.your_new_table TO anon;
+```
+
+Grant `anon` only the minimum it needs (usually just `SELECT`, or nothing at all for user-private tables).
